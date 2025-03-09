@@ -1392,6 +1392,54 @@ class LoadingState(State):
         pygame.draw.rect(self.game.screen, pygame.Color('white'), (bar_x, bar_y, bar_width, bar_height), 2)
         pygame.draw.rect(self.game.screen, pygame.Color('green'), (bar_x, bar_y, bar_width * (self.loading_progress / 100), bar_height))
 
+
+def show_loading_screen(screen, progress):
+    screen.fill((0, 0, 0))
+    font = pygame.font.Font(None, 50)
+    text = font.render("Loading", True, (255, 255, 255))
+    screen.blit(text, (screen.get_width() // 2 - text.get_width() // 2, screen.get_height() // 2 - text.get_height() // 2))
+    
+    # Draw loading bar
+    bar_width = 400
+    bar_height = 20
+    bar_x = (screen.get_width() - bar_width) // 2
+    bar_y = screen.get_height() // 2 + 40
+    pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))  # Background bar
+    pygame.draw.rect(screen, (0, 255, 0), (bar_x, bar_y, int(bar_width * (progress / 100)), bar_height))  # Green progress
+    
+    pygame.display.flip()
+    pygame.event.pump()  # Prevent freezing
+
+def load_assets(screen):
+    total_assets = len(os.listdir("BUTTONS")) + len(os.listdir("AUDIO")) + 15  # Approximate total
+    loaded_assets = 0
+    
+    images = {}
+    for file in os.listdir("BUTTONS"):
+        if file.endswith(".png"):
+            images[file] = pygame.image.load(f"BUTTONS/{file}").convert_alpha()
+            loaded_assets += 1
+            show_loading_screen(screen, loaded_assets * 100 // total_assets)
+            pygame.time.delay(50)
+    
+    sounds = {}
+    for file in os.listdir("AUDIO"):
+        if file.endswith(".mp3"):
+            sounds[file] = pygame.mixer.Sound(f"AUDIO/{file}")
+            loaded_assets += 1
+            show_loading_screen(screen, loaded_assets * 100 // total_assets)
+            pygame.time.delay(50)
+    
+    videos = {}
+    video_keys = ["welcome", "intro", "usertype", "llanding", "glanding", "lgsign", "ggsign", "lplanet", "gplanet", "home", "blgsign", "gexplorer", "galpha", "gnum", "gphrases"]
+    for key in video_keys:
+        videos[key] = cv2.VideoCapture(f"SCENES/{key.upper()}.mp4")
+        loaded_assets += 1
+        show_loading_screen(screen, loaded_assets * 100 // total_assets)
+        pygame.time.delay(50)
+    
+    return images, sounds, videos
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -1405,30 +1453,19 @@ class Game:
         # Initialize font
         self.font = pygame.font.Font(None, 36)
         
-        self.videos = {key: cv2.VideoCapture(f"SCENES/{key.upper()}.mp4") for key in [
-            "welcome", "intro", "usertype", "llanding",
-            "glanding", "lgsign", "ggsign", "lplanet", "gplanet", "home", "blgsign", "gexplorer",
-            "galpha", "gnum", "gphrases"
-        ]}
-
+        # Show loading screen while loading assets
+        show_loading_screen(self.screen, 0)
+        self.images, self.sounds, self.videos = load_assets(self.screen)
+        
         self.states = {
-            "loading": LoadingState(self),
-            "welcome": WelcomeState(self, "welcome", [
-                ("BUTTONS/LAUNCH.png", None, "playing_welcome")
-            ], "AUDIO/LAUNCH SOUND.mp3"),
+            "welcome": WelcomeState(self, "welcome", [("BUTTONS/LAUNCH.png", None, "playing_welcome")], "AUDIO/LAUNCH SOUND.mp3"),
             "playing_welcome": VideoState(self, "welcome", "playing_intro"),
             "playing_intro": VideoState(self, "intro", "playing_usertype", "AUDIO/INTRO.mp3"),  
-            "playing_usertype": UserTypeState(self, "usertype", [
-                ("BUTTONS/LEARNER.png", None, "playing_learner_planet"),
-                ("BUTTONS/GUARDIAN.png", None, "playing_guardian_planet")
-            ], "AUDIO/USERTYPE.mp3"),  
+            "playing_usertype": UserTypeState(self, "usertype", [("BUTTONS/LEARNER.png", None, "playing_learner_planet"), ("BUTTONS/GUARDIAN.png", None, "playing_guardian_planet")], "AUDIO/USERTYPE.mp3"),  
             "load_game": LoadGameState(self, "blgsign"),
             "playing_learner_planet": VideoState(self, "lplanet", "playing_learner_landing"),
             "playing_learner_landing": VideoState(self, "llanding", "playing_blgsign", "AUDIO/LLANDING.mp3"),  
-            "playing_blgsign": BLGSignState(self, "blgsign", [
-                ("BUTTONS/NEW GAME.png", None, "playing_lgsign"),
-                ("BUTTONS/LOAD GAME.png", None, "load_game")
-            ]),
+            "playing_blgsign": BLGSignState(self, "blgsign", [("BUTTONS/NEW GAME.png", None, "playing_lgsign"), ("BUTTONS/LOAD GAME.png", None, "load_game")]),
             "playing_lgsign": VideoWithSignInState(self, "lgsign", "playing_home"),
             "playing_guardian_planet": VideoState(self, "gplanet", "playing_guardian_landing"),
             "playing_guardian_landing": VideoState(self, "glanding", "playing_home", "AUDIO/GLANDING.mp3"),  
@@ -1451,27 +1488,9 @@ class Game:
             image_path = os.path.join("GAME PROPER", "GEXPLORER ALPHABET", f"{letter}.png")
             self.states[state_name] = AlphabetDisplayState(self, image_path, expected_letter=letter)
 
-        self.current_state = self.states["loading"]
+        self.current_state = self.states["welcome"]  # Start at welcome screen after loading
         self.current_state.enter()
         self.clock = pygame.time.Clock()
-
-    def load_video(self, key):
-        if key not in self.videos:
-            self.videos[key] = cv2.VideoCapture(f"SCENES/{key.upper()}.mp4")
-        return self.videos[key]
-
-    def load_sound(self, file_path):
-        if file_path not in self.sounds:
-            self.sounds[file_path] = pygame.mixer.Sound(file_path)
-        return self.sounds[file_path]
-    
-    def change_state(self, new_state):
-        if hasattr(self.current_state, 'sound') and self.current_state.sound:
-            self.current_state.sound.stop()
-            
-        self.current_state.exit()
-        self.current_state = self.states[new_state]
-        self.current_state.enter()
     
     def run(self):
         while True:

@@ -1392,6 +1392,12 @@ class Game:
             "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases", None, "AUDIO/HOME.mp3")
         }
 
+        # Preload images to avoid redundant calls
+        self.images = {
+            "next": pygame.image.load("BUTTONS/NEXT.png").convert_alpha(),
+            "back": pygame.image.load("BUTTONS/BACK.png").convert_alpha(),
+        }
+        
         # Add number states dynamically
         for i in range(10):
             state_name = f"playing_{i}"
