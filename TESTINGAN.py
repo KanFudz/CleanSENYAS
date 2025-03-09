@@ -1,16 +1,12 @@
-import tensorflow.lite as tflite
-import os
+import tensorflow as tf
 
-model_path = "asl_number_classifier.tflite"
+# Load the Keras model
+model = tf.keras.models.load_model('MODEL/asl_mlp_model.h5')
 
-if os.path.exists(model_path):
-    try:
-        interpreter = tflite.Interpreter(model_path=model_path)
-        interpreter.allocate_tensors()
-        print("Model loaded successfully!")
-        print("Input details:", interpreter.get_input_details())
-        print("Output details:", interpreter.get_output_details())
-    except Exception as e:
-        print("Error loading model:", e)
-else:
-    print("Model file not found.")
+# Convert the model to TensorFlow Lite format
+converter = tf.lite.TFLiteConverter.from_keras_model(model)
+tflite_model = converter.convert()
+
+# Save the converted model to a file
+with open('MODEL/asl_mlp_model.tflite', 'wb') as f:
+    f.write(tflite_model)
