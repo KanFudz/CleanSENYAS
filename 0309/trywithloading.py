@@ -1492,6 +1492,11 @@ class Game:
         self.current_state.enter()
         self.clock = pygame.time.Clock()
     
+    def change_state(self, new_state):
+        self.current_state.exit()
+        self.current_state = self.states[new_state]
+        self.current_state.enter()
+    
     def run(self):
         while True:
             self.screen.fill((0, 0, 0))
