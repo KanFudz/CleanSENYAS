@@ -1348,6 +1348,153 @@ class GalaxyExplorerPhrasesstate(VideoState):
                 pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
                 self.game.change_state("playing_galaxy")
 
+
+import random
+
+class CosmicCopyState(State):
+    def __init__(self, game):
+        super().__init__(game)
+
+    def enter(self):
+        categories = ["alphabet", "number", "phrase"]
+        selected_category = random.choice(categories)
+
+        if selected_category == "alphabet":
+            letter = random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            image_path = os.path.join("GAME PROPER", "COSMIC COPY ALPHABET", f"{letter}.png")
+            model_path = "MODEL/asl_mlp_model.tflite"
+            expected_output = letter
+
+        elif selected_category == "number":
+            number = random.randint(0, 9)
+            image_path = os.path.join("GAME PROPER", "COSMIC COPY NUMBER", f"{number}.png")
+            model_path = "MODEL/asl_number_classifier.tflite"
+            expected_output = str(number)
+
+        elif selected_category == "phrase":
+            phrases = {
+                "goodbye": "GOODBYE.png",
+                "hello": "HELLO.png",
+                "iloveyou": "ILOVEYOU.png",
+                "no": "NO.png",
+                "please": "PLEASE.png",
+                "sorry": "SORRY.png",
+                "thankyou": "THANKYOU.png",
+                "yes": "YES.png"
+            }
+            phrase = random.choice(list(phrases.keys()))
+            image_path = os.path.join("GAME PROPER", "COSMIC COPY PHRASES", phrases[phrase])
+            model_path = "MODEL/asl_phrase_model.tflite"
+            expected_output = phrase
+
+        # Transition to Cosmic Display State
+        self.game.change_state("playing_cosmic_display", image_path, model_path, expected_output)
+
+    def update(self):
+        pass
+
+    def handle_event(self, event):
+        pass
+
+    def render(self):
+        pass
+
+class CosmicDisplayState(State):
+    def __init__(self, game, image_path, model_path, expected_output):
+        super().__init__(game)
+        self.image = pygame.image.load(image_path).convert_alpha()
+        self.image = pygame.transform.smoothscale(self.image, (1024, 600))
+        self.expected_output = expected_output
+
+        # Load correct model based on type
+        self.interpreter = tflite.Interpreter(model_path=model_path)
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        # Mediapipe Setup
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        # Labels based on model type
+        if "mlp_model" in model_path:
+            self.labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
+        elif "number_classifier" in model_path:
+            self.labels = [str(i) for i in range(10)]
+        else:
+            self.labels = ["goodbye", "hello", "iloveyou", "no", "please", "sorry", "thankyou", "yes"]
+
+        # Webcam Setup
+        self.webcam = cv2.VideoCapture(0)
+        self.correct = False
+        self.start_time = None
+
+        # Back Button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect(topleft=(10, 10))
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))
+        self.game.screen.blit(self.image, (0, 0))
+
+        ret, frame = self.webcam.read()
+        if ret:
+            frame = cv2.flip(frame, 1)
+            roi = frame[:, frame.shape[1] // 2:]
+            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+            result = self.hands.process(roi_rgb)
+
+            if result.multi_hand_landmarks:
+                for hand_landmarks in result.multi_hand_landmarks:
+                    landmarks = [lm.x for lm in hand_landmarks.landmark] + [lm.y for lm in hand_landmarks.landmark]
+
+                    # Model Prediction
+                    input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+                    if input_data.shape[1] == self.input_details[0]['shape'][1]:
+                        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                        self.interpreter.invoke()
+                        output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+                        prediction = np.argmax(output_data)
+
+                        # Check if correct
+                        if self.labels[prediction] == self.expected_output:
+                            self.correct = True
+                            self.start_time = None
+                        else:
+                            if self.start_time is None:
+                                self.start_time = time.time()
+                            elif time.time() - self.start_time > 5:
+                                self.correct = False
+                                self.start_time = None
+
+                    self.mp_drawing.draw_landmarks(roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
+
+            # Display Result
+            result_text = "Correct" if self.correct else "Try Again" if self.start_time else ""
+            result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+            self.game.screen.blit(result_surface, (600, 120))
+
+            # Display Webcam
+            webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (350, 263)).swapaxes(0, 1))
+            self.game.screen.blit(webcam_surface, (600, 150))
+
+        # Back Button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_home")
+
+    def exit(self):
+        self.webcam.release()
+        self.hands.close()
+
+
+
 class LoadingState(State):
     def __init__(self, game):
         super().__init__(game)
@@ -1475,7 +1622,10 @@ class Game:
             "playing_galaxy": GalaxyExplorerState(self, "gexplorer"),
             "playing_alphabets": GalaxyExplorerAlphabetState(self, "galpha"),
             "playing_numbers": GalaxyExplorerNumberState(self, "gnum"),
-            "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases")
+            "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases"),
+            "playing_cosmic": CosmicCopyState(self),
+            "playing_cosmic_display": None  # Placeholder (dynamically created)
+
         }
 
         # Add number states dynamically
@@ -1494,10 +1644,13 @@ class Game:
         self.current_state.enter()
         self.clock = pygame.time.Clock()
     
-    def change_state(self, new_state):
+    def change_state(self, new_state, *args):
         self.current_state.exit()
+        if new_state == "playing_cosmic_display":
+            self.states[new_state] = CosmicDisplayState(self, *args)  # Create new instance dynamically
         self.current_state = self.states[new_state]
         self.current_state.enter()
+
     
     def run(self):
         while True:
