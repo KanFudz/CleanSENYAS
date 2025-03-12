@@ -1515,6 +1515,125 @@ class CosmicCopyState(State):
                 self.correct = False  # Reset correct status
                 self.start_time = None  # Reset start time
                 self.game.change_state("playing_home")
+                
+class PhraseDisplayState(State):
+    def __init__(self, game, image_path, expected_phrase, next_state, webcam_position=(700, 150), webcam_size=(300, 225)):
+        super().__init__(game)
+        self.original_image = pygame.image.load(image_path).convert_alpha()
+        
+        # Scale image while maintaining aspect ratio
+        self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
+        self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))
+
+        # Back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect(topleft=(10, 10))
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+        
+        self.back_button_collision.height = 85
+        self.back_button_collision.width = 90
+        self.back_button_collision.x = 28
+        self.back_button_collision.y = 35
+        
+        self.last_frame = None
+        self.hovered_button = None
+
+        # Webcam feed
+        self.webcam_position = (600, 152)
+        self.webcam_size = (350, 263)
+        self.webcam = cv2.VideoCapture(0)
+
+        # Load TFLite model
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        # Mediapipe Hands setup
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        # Phrase labels
+        self.labels = ["HELLO", "GOODBYE", "YES", "NO", "PLEASE", "SORRY", "THANKYOU", "ILOVEYOU"]
+
+        # Timer for try again message
+        self.start_time = None
+        self.correct = False
+
+        # Expected phrase for this state
+        self.expected_phrase = expected_phrase
+        self.next_state = next_state  # State to transition to on correct input
+
+    def get_scaled_dimensions(self, image, max_width, max_height):
+        img_width, img_height = image.get_size()
+        scale_factor = min(max_width / img_width, max_height / img_height)
+        return int(img_width * scale_factor), int(img_height * scale_factor)
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))  # Clear screen
+        self.game.screen.blit(self.image, self.image_rect.topleft)
+
+        # Update webcam feed
+        ret, webcam_frame = self.webcam.read()
+        if ret:
+            webcam_frame = cv2.flip(webcam_frame, 1)
+            roi_rgb = cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB)
+            result = self.hands.process(roi_rgb)
+            
+            if result.multi_hand_landmarks:
+                for hand_landmarks in result.multi_hand_landmarks:
+                    landmarks = []
+                    for lm in hand_landmarks.landmark:
+                        landmarks.extend([lm.x, lm.y, lm.z])  # Include x, y, and z coordinates
+                    input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+                    
+                    self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                    self.interpreter.invoke()
+                    output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+                    prediction = np.argmax(output_data)
+                    
+                    if self.labels[prediction] == self.expected_phrase:
+                        self.correct = True
+                        self.start_time = None
+                    else:
+                        if self.start_time is None:
+                            self.start_time = time.time()
+                        elif time.time() - self.start_time > 5:
+                            self.correct = False
+                            self.start_time = None
+
+                    self.mp_drawing.draw_landmarks(
+                        webcam_frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                        self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                    )
+            
+            result_text = "Correct" if self.correct else "Try Again" if self.start_time else ""
+            result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+            self.game.screen.blit(result_surface, (self.webcam_position[0], self.webcam_position[1] - 30))
+            
+            webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+            self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+        if self.correct:
+            pygame.time.delay(500)
+            self.game.change_state(self.next_state)  # Proceed to the next state
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            self.hovered_button = self.back_button_collision if self.back_button_collision.collidepoint(event.pos) else None
+            if self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+
+        if event.type == pygame.MOUSEBUTTONDOWN and self.back_button_collision.collidepoint(event.pos):
+            pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+            self.game.change_state("playing_phrases")
+
 
 class LoadingState(State):
     def __init__(self, game):
@@ -1646,11 +1765,35 @@ class Game:
             "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases"),
         }
 
-        # Add number states dynamically
-        for i in range(10):
-            state_name = f"playing_{i}"
-            image_path = os.path.join("GAME PROPER", "GEXPLORER NUMBER", f"{i}.png")
-            self.states[state_name] = NumberDisplayState(self, image_path, expected_number=i)
+        # Add phrase states dynamically
+        phrases = {
+            "hello": "HELLO.png",
+            "goodbye": "GOODBYE.png",
+            "iloveyou": "ILOVEYOU.png",
+            "no": "NO.png",
+            "please": "PLEASE.png",
+            "sorry": "SORRY.png",
+            "thankyou": "THANKYOU.png",
+            "yes": "YES.png"
+        }
+
+        # Add phrase states dynamically
+        phrases = {
+            "hello": "HELLO.png",
+            "goodbye": "GOODBYE.png",
+            "iloveyou": "ILOVEYOU.png",
+            "no": "NO.png",
+            "please": "PLEASE.png",
+            "sorry": "SORRY.png",
+            "thankyou": "THANKYOU.png",
+            "yes": "YES.png"
+        }
+
+        for phrase, image in phrases.items():
+            state_name = f"playing_{phrase}"
+            image_path = os.path.join("GAME PROPER", "GEXPLORER PHRASES", image)
+            self.states[state_name] = PhraseDisplayState(self, image_path, phrase.upper(), "playing_phrases")
+
 
         # Add alphabet states dynamically
         for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
