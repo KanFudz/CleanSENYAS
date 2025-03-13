@@ -922,7 +922,7 @@ class AlphabetDisplayState(State):
         # Webcam feed parameters
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
-        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.webcam = cv2.VideoCapture(0)  # Initialize webcam
 
         # Load the TFLite model
         self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
@@ -1161,7 +1161,7 @@ class NumberDisplayState(State):
         # Webcam feed parameters
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
-        self.webcam = cv2.VideoCapture(0,cv2.CAP_DSHOW)  # Initialize webcam
+        self.webcam = cv2.VideoCapture(0)  # Initialize webcam
 
         # Load the TFLite model
         self.interpreter = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
@@ -1415,7 +1415,7 @@ class CosmicCopyState(State):
         self.back_button_collision.y = 35
 
         self.hovered_button = None
-        self.webcam = cv2.VideoCapture(0,cv2.CAP_DSHOW)  # Initialize webcam
+        self.webcam = cv2.VideoCapture(0)  # Initialize webcam
 
         # Timer for try again message
         self.start_time = None
@@ -1588,7 +1588,7 @@ class PhraseDisplayState(State):
         # Webcam feed
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
-        self.webcam = cv2.VideoCapture(0,cv2.CAP_DSHOW)
+        self.webcam = cv2.VideoCapture(0)
 
         # Load TFLite model
         self.interpreter = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
