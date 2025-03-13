@@ -922,7 +922,7 @@ class AlphabetDisplayState(State):
         # Webcam feed parameters
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
-        self.webcam = cv2.VideoCapture(0,cv2.CAP_DSHOW)  # Initialize webcam
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
 
         # Load the TFLite model
         self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
