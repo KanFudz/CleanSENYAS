@@ -73,219 +73,127 @@ class VideoState(State):
             self.game.videos[self.video_key].release()
             if self.next_state:
                 self.game.change_state(self.next_state)
-
-class OnScreenKeyboard:
-    def __init__(self, game, input_box_rect):
-        self.game = game
-        self.input_box_rect = input_box_rect
-        self.keys = [
-            ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-            ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-            ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-            ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '@', '.'],
-            ['SPACE', 'BACKSPACE']
-        ]
-        self.key_rects = []
-        self.create_key_rects()
-
-    def create_key_rects(self):
-        key_width = 50
-        key_height = 50
-        padding = 5
-        start_x = self.input_box_rect.x
-        start_y = self.input_box_rect.y + self.input_box_rect.height + 10
-
-        for row in self.keys:
-            row_rects = []
-            for key in row:
-                rect = pygame.Rect(start_x, start_y, key_width, key_height)
-                row_rects.append((key, rect))
-                start_x += key_width + padding
-            self.key_rects.append(row_rects)
-            start_x = self.input_box_rect.x
-            start_y += key_height + padding
-
-    def draw(self):
-        for row in self.key_rects:
-            for key, rect in row:
-                pygame.draw.rect(self.game.screen, pygame.Color('white'), rect)
-                text_surface = self.game.font.render(key, True, pygame.Color('black'))
-                self.game.screen.blit(text_surface, (rect.x + (rect.width - text_surface.get_width()) // 2, rect.y + (rect.height - text_surface.get_height()) // 2))
-
-    def handle_event(self, event):
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            for row in self.key_rects:
-                for key, rect in row:
-                    if rect.collidepoint(event.pos):
-                        return key
-        return None
-
+                
 class VideoWithSignInState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None, next_button_collision_height=50):
         super().__init__(game, video_key, next_state, audio_file)
         self.font = pygame.font.Font(None, 24)
-        
-        # Create input box and button using consistent approach
+        self.last_frame = None
+
+        # Input Box
         self.input_box_rect = pygame.Rect(362, 300, 300, 50)
-        # Create an invisible surface for the input box for consistency with button approach
-        self.input_box_surf = pygame.Surface((300, 50), pygame.SRCALPHA)
-        self.input_box_surf.fill((0, 0, 0, 0))  # Transparent
+        self.text = ''
+        self.active = False
         
-        # Load NEXT.png button image
+        # Buttons
         self.next_button_img = pygame.image.load("BUTTONS/NEXT.png").convert_alpha()
         self.next_button_rect = self.next_button_img.get_rect(topleft=(462, 370))
-        self.next_button_collision = get_collision_rect(self.next_button_img)
-        
-        # Adjust the height of the collision rectangle
-        self.next_button_collision.height = 75
-        self.next_button_collision.width = 230
-        self.next_button_collision.x = 398
-        self.next_button_collision.y = 385 
-        
-        # Add back button
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
         self.back_button_rect = self.back_button_img.get_rect(topleft=(10, 10))
-        self.back_button_collision = get_collision_rect(self.back_button_img)
         
-        # Adjust the height, width, x, and y of the collision rectangle for back button
-        self.back_button_collision.height = 85
-        self.back_button_collision.width = 90
-        self.back_button_collision.x = 28
-        self.back_button_collision.y = 35
-        
-        self.text = ''
-        self.active = False
-        self.last_frame = None
+        # On-screen keyboard layout
+        self.keyboard_keys = [
+            "QWERTYUIOP",
+            "ASDFGHJKL",
+            "ZXCVBNM⌫",
+            "SPACE"
+        ]
+
+        # Key dimensions
+        self.key_width = 60
+        self.key_height = 60
+        self.key_margin = 10
+        self.spacebar_width = 500
+
+        # Hovered button tracker
         self.hovered_button = None
 
-        # Initialize the on-screen keyboard
-        self.keyboard = OnScreenKeyboard(game, self.input_box_rect)
+    def draw_keyboard(self):
+        """Draw the on-screen keyboard."""
+        y_offset = 450  # Starting position for the keyboard
+        
+        for row_index, row in enumerate(self.keyboard_keys):
+            x_offset = 200
+            
+            for key in row:
+                # Adjust spacebar size
+                if key == "SPACE":
+                    key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width, self.key_height)
+                else:
+                    key_rect = pygame.Rect(x_offset, y_offset, self.key_width, self.key_height)
 
-    def enter(self):
-        super().enter()
-        self.text = ''
-        self.active = False
+                pygame.draw.rect(self.game.screen, (200, 200, 200), key_rect, border_radius=10)
+                key_text = self.font.render(key, True, (0, 0, 0))
+                self.game.screen.blit(key_text, (key_rect.x + 20, key_rect.y + 15))
+                
+                x_offset += (self.key_width + self.key_margin) if key != "SPACE" else self.spacebar_width + 10
+                
+            y_offset += self.key_height + self.key_margin
 
-    def update(self):
-        ret, frame = self.game.videos[self.video_key].read()
-        if ret:
-            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
-            self.game.screen.blit(self.last_frame, (0, 0))
-        else:
-            if self.last_frame:
-                self.game.screen.blit(self.last_frame, (0, 0))
+    def handle_keyboard_click(self, pos):
+        """Handle clicking on the on-screen keyboard."""
+        y_offset = 450
+        
+        for row in self.keyboard_keys:
+            x_offset = 200
+            
+            for key in row:
+                # Adjust spacebar size
+                if key == "SPACE":
+                    key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width, self.key_height)
+                else:
+                    key_rect = pygame.Rect(x_offset, y_offset, self.key_width, self.key_height)
+
+                if key_rect.collidepoint(pos):
+                    if key == "⌫":
+                        self.text = self.text[:-1]  # Backspace
+                    elif key == "SPACE":
+                        self.text += " "  # Space
+                    else:
+                        self.text += key  # Add character
+                
+                x_offset += (self.key_width + self.key_margin) if key != "SPACE" else self.spacebar_width + 10
+            
+            y_offset += self.key_height + self.key_margin
 
     def handle_event(self, event):
-        if event.type == pygame.MOUSEMOTION:
-            # Check next button hover
-            if self.next_button_collision.collidepoint(event.pos):
-                if self.hovered_button != self.next_button_collision:
-                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
-                self.hovered_button = self.next_button_collision
-            # Check back button hover
-            elif self.back_button_collision.collidepoint(event.pos):
-                if self.hovered_button != self.back_button_collision:
-                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
-                self.hovered_button = self.back_button_collision
-            else:
-                self.hovered_button = None
-                
         if event.type == pygame.MOUSEBUTTONDOWN:
+            # Handle text input box
             if self.input_box_rect.collidepoint(event.pos):
-                self.active = not self.active
+                self.active = True
             else:
                 self.active = False
-                
-            # Handle next button click
-            if self.next_button_collision.collidepoint(event.pos):
-                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
-                print(f"Entered text: {self.text}")
-                # Save the profile name and create a save file
-                if self.text.strip():  # Only save if text isn't empty
+
+            # Handle Next button
+            if self.next_button_rect.collidepoint(event.pos):
+                if self.text.strip():
                     self.save_profile(self.text)
-                # Go to home screen
-                self.game.change_state("playing_home")
-                
-            # Handle back button click
-            elif self.back_button_collision.collidepoint(event.pos):
-                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
-                # Go back to blgsign screen
-                self.game.change_state("playing_blgsign")
-        
-        if event.type == pygame.KEYDOWN:
-            if self.active:
-                if event.key == pygame.K_RETURN:
-                    print(f"Entered text: {self.text}")
-                    # Save the profile name and create a save file
-                    if self.text.strip():  # Only save if text isn't empty
-                        self.save_profile(self.text)
-                    # Go to home screen
                     self.game.change_state("playing_home")
-                elif event.key == pygame.K_BACKSPACE:
-                    self.text = self.text[:-1]
-                else:
-                    self.text += event.unicode
 
-        if self.active:
-            key = self.keyboard.handle_event(event)
-            if key:
-                if key == 'BACKSPACE':
-                    self.text = self.text[:-1]
-                elif key == 'SPACE':
-                    self.text += ' '
-                else:
-                    self.text += key
+            # Handle Back button
+            if self.back_button_rect.collidepoint(event.pos):
+                self.game.change_state("playing_blgsign")
 
-    def save_profile(self, profile_name):
-        """Save the profile name to a save file"""
-        # Set current profile in the game
-        self.game.current_profile = profile_name
-        
-        # Create save directory if it doesn't exist
-        if not os.path.exists("saves"):
-            os.makedirs("saves")
-        
-        # Create a new save file with initial data
-        save_data = {
-            "name": profile_name,
-            "created_at": pygame.time.get_ticks(),
-            "progress": {
-                "level": 1,
-                "score": 0,
-                "completed_lessons": []
-            }
-        }
-        
-        # Save to JSON file
-        with open(f"saves/{profile_name}.json", "w") as f:
-            json.dump(save_data, f, indent=4)
-        
-        print(f"Profile '{profile_name}' saved successfully.")
+            # Handle on-screen keyboard
+            self.handle_keyboard_click(event.pos)
 
     def render(self):
+        # Render video frame
         if self.last_frame:
             self.game.screen.blit(self.last_frame, (0, 0))
-            
-        # Draw input box
+
+        # Input box
         pygame.draw.rect(self.game.screen, pygame.Color('white'), self.input_box_rect, 2)
         txt_surface = self.font.render(self.text, True, pygame.Color('black'))
-        self.game.screen.blit(txt_surface, (self.input_box_rect.x + 5, self.input_box_rect.y + (self.input_box_rect.height - txt_surface.get_height()) // 2))
-        
-        # Draw NEXT button
-        self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
-        
-        # Draw BACK button
-        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
-        
-        # Draw highlight if any button is hovered
-        if self.hovered_button == self.next_button_collision:
-            pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
-        elif self.hovered_button == self.back_button_collision:
-            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        self.game.screen.blit(txt_surface, (self.input_box_rect.x + 5, self.input_box_rect.y + 15))
 
-        # Draw the on-screen keyboard if the input box is active
-        if self.active:
-            self.keyboard.draw()
+        # Next and Back buttons
+        self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+
+        # Draw the on-screen keyboard
+        self.draw_keyboard()
+
 
 class WelcomeState(State):
     def __init__(self, game, background_video, button_data, audio_file=None):
@@ -702,6 +610,7 @@ class LoadGameState(State):
             no_profiles_rect = no_profiles_text.get_rect(center=(512, 300))
             self.game.screen.blit(no_profiles_text, no_profiles_rect)
 
+            
 class HomeState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None):
         super().__init__(game, video_key, next_state, audio_file)
