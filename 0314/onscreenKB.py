@@ -73,7 +73,53 @@ class VideoState(State):
             self.game.videos[self.video_key].release()
             if self.next_state:
                 self.game.change_state(self.next_state)
-                
+
+class OnScreenKeyboard:
+    def __init__(self, game, input_box_rect):
+        self.game = game
+        self.input_box_rect = input_box_rect
+        self.keys = [
+            ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+            ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+            ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+            ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '@', '.'],
+            ['SPACE', 'BACKSPACE']
+        ]
+        self.key_rects = []
+        self.create_key_rects()
+
+    def create_key_rects(self):
+        key_width = 50
+        key_height = 50
+        padding = 5
+        start_x = self.input_box_rect.x
+        start_y = self.input_box_rect.y + self.input_box_rect.height + 10
+
+        for row in self.keys:
+            row_rects = []
+            for key in row:
+                rect = pygame.Rect(start_x, start_y, key_width, key_height)
+                row_rects.append((key, rect))
+                start_x += key_width + padding
+            self.key_rects.append(row_rects)
+            start_x = self.input_box_rect.x
+            start_y += key_height + padding
+
+    def draw(self):
+        for row in self.key_rects:
+            for key, rect in row:
+                pygame.draw.rect(self.game.screen, pygame.Color('white'), rect)
+                text_surface = self.game.font.render(key, True, pygame.Color('black'))
+                self.game.screen.blit(text_surface, (rect.x + (rect.width - text_surface.get_width()) // 2, rect.y + (rect.height - text_surface.get_height()) // 2))
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            for row in self.key_rects:
+                for key, rect in row:
+                    if rect.collidepoint(event.pos):
+                        return key
+        return None
+
 class VideoWithSignInState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None, next_button_collision_height=50):
         super().__init__(game, video_key, next_state, audio_file)
@@ -112,6 +158,8 @@ class VideoWithSignInState(VideoState):
         self.last_frame = None
         self.hovered_button = None
 
+        # Initialize the on-screen keyboard
+        self.keyboard = OnScreenKeyboard(game, self.input_box_rect)
 
     def enter(self):
         super().enter()
@@ -178,6 +226,16 @@ class VideoWithSignInState(VideoState):
                 else:
                     self.text += event.unicode
 
+        if self.active:
+            key = self.keyboard.handle_event(event)
+            if key:
+                if key == 'BACKSPACE':
+                    self.text = self.text[:-1]
+                elif key == 'SPACE':
+                    self.text += ' '
+                else:
+                    self.text += key
+
     def save_profile(self, profile_name):
         """Save the profile name to a save file"""
         # Set current profile in the game
@@ -225,6 +283,9 @@ class VideoWithSignInState(VideoState):
         elif self.hovered_button == self.back_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
 
+        # Draw the on-screen keyboard if the input box is active
+        if self.active:
+            self.keyboard.draw()
 
 class WelcomeState(State):
     def __init__(self, game, background_video, button_data, audio_file=None):
