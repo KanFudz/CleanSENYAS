@@ -87,14 +87,14 @@ class OnScreenKeyboardState(State):
             "QWERTYUIOP",
             "ASDFGHJKL",
             "ZXCVBNM⌫",
-            "@. SPACE"
+            "@. "
         ]
 
         # Key dimensions
         self.key_width = 80
         self.key_height = 80
         self.key_margin = 10
-        self.spacebar_width = 1000  # Longer space bar
+        self.spacebar_width = 700  # Longer spacebar
 
     def enter(self):
         if self.game.current_state_data:
@@ -102,58 +102,63 @@ class OnScreenKeyboardState(State):
 
     def draw_keyboard(self):
         """Draw the on-screen keyboard."""
-        y_offset = 50  # Raised keyboard higher
-        screen_width = self.game.screen.get_width()
+        y_offset = 100  # Starting position for the keyboard
 
         for row in self.keyboard_keys:
-            # Calculate the width of each row dynamically
-            row_width = sum(self.spacebar_width if key == "SPACE" else self.key_width 
-                            for key in row) + (len(row) - 1) * self.key_margin
+            # Calculate the width of the current row
+            row_width = sum(
+                self.spacebar_width if key == " " else self.key_width for key in row
+            ) + (len(row) - 1) * self.key_margin
 
-            # Center each row horizontally
-            x_offset = (screen_width - row_width) // 2
-            
+            # Center horizontally
+            x_offset = (self.game.screen.get_width() - row_width) // 2
+
             for key in row:
-                # Adjust spacebar size
-                if key == "SPACE":
+                # Handle spacebar size
+                if key == " ":
                     key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width, self.key_height)
                 else:
                     key_rect = pygame.Rect(x_offset, y_offset, self.key_width, self.key_height)
 
+                # Draw key
                 pygame.draw.rect(self.game.screen, (200, 200, 200), key_rect, border_radius=10)
                 key_text = self.font.render(key, True, (0, 0, 0))
                 text_rect = key_text.get_rect(center=key_rect.center)
                 self.game.screen.blit(key_text, text_rect.topleft)
 
-                x_offset += (self.spacebar_width + self.key_margin) if key == "SPACE" else (self.key_width + self.key_margin)
+                # Move to the next key
+                x_offset += (self.spacebar_width + self.key_margin) if key == " " else (self.key_width + self.key_margin)
 
             y_offset += self.key_height + self.key_margin
 
     def handle_keyboard_click(self, pos):
         """Handle clicking on the on-screen keyboard."""
-        y_offset = 50  # Raised keyboard higher
-        screen_width = self.game.screen.get_width()
+        y_offset = 100  # Same offset as in draw function
 
         for row in self.keyboard_keys:
-            row_width = sum(self.spacebar_width if key == "SPACE" else self.key_width 
-                            for key in row) + (len(row) - 1) * self.key_margin
-            x_offset = (screen_width - row_width) // 2
+            row_width = sum(
+                self.spacebar_width if key == " " else self.key_width for key in row
+            ) + (len(row) - 1) * self.key_margin
+
+            x_offset = (self.game.screen.get_width() - row_width) // 2
 
             for key in row:
-                if key == "SPACE":
+                if key == " ":
                     key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width, self.key_height)
                 else:
                     key_rect = pygame.Rect(x_offset, y_offset, self.key_width, self.key_height)
 
+                # Check for mouse click inside the key
                 if key_rect.collidepoint(pos):
                     if key == "⌫":
                         self.text = self.text[:-1]  # Backspace
-                    elif key == "SPACE":
+                    elif key == " ":
                         self.text += " "  # Space
                     else:
-                        self.text += key  # Add character
+                        self.text += key  # Add character to text
 
-                x_offset += (self.spacebar_width + self.key_margin) if key == "SPACE" else (self.key_width + self.key_margin)
+                # Move to the next key
+                x_offset += (self.spacebar_width + self.key_margin) if key == " " else (self.key_width + self.key_margin)
 
             y_offset += self.key_height + self.key_margin
 
@@ -179,7 +184,7 @@ class OnScreenKeyboardState(State):
 
         # Draw the on-screen keyboard
         self.draw_keyboard()
-             
+
                 
 class VideoWithSignInState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None, next_button_collision_height=50):
