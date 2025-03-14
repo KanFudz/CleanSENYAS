@@ -1654,7 +1654,7 @@ class PhraseDisplayState(State):
         self.mp_drawing = mp.solutions.drawing_utils
 
         # Label map
-        self.labels = ["HELLO", "GOODBYE", "SORRY", "ILOVEYOU"]
+        self.labels = ["GOODBYE", "HELLO", "ILOVEYOU", "SORRY"]
 
         # Timer for try again message
         self.start_time = None
@@ -1987,7 +1987,7 @@ class CosmicCopyState(State):
     def celebrate(self):
         # Add celebration effect like confetti
         pass
-    
+
 class StarQuestState(State):
     def __init__(self, game):
         super().__init__(game)
