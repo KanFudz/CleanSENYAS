@@ -102,7 +102,7 @@ class OnScreenKeyboardState(State):
 
     def draw_keyboard(self):
         """Draw the on-screen keyboard."""
-        y_offset = 150  # Starting position for the keyboard
+        y_offset = 100  # Starting position for the keyboard
 
         for row in self.keyboard_keys:
             # Calculate row width
