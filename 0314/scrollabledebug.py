@@ -604,18 +604,27 @@ class LoadGameState(State):
         title_rect = title_text.get_rect(center=(512, 100))
         self.game.screen.blit(title_text, title_rect)
         
+        # Calculate the range of profiles to display based on the scroll offset
+        profile_height = 60
+        max_visible_profiles = 7
+        start_index = max(0, -self.scroll_offset // profile_height)
+        end_index = min(len(self.profile_buttons), start_index + max_visible_profiles)
+        
         # Draw profile buttons
-        for profile_name, button_rect in self.profile_buttons:
+        for i in range(start_index, end_index):
+            profile_name, button_rect = self.profile_buttons[i]
+            adjusted_rect = button_rect.move(0, self.scroll_offset)
+            
             # Draw button background
-            pygame.draw.rect(self.game.screen, (50, 50, 100), button_rect.move(0, self.scroll_offset))
+            pygame.draw.rect(self.game.screen, (50, 50, 100), adjusted_rect)
             
             # Draw button border
             border_color = (0, 255, 0) if button_rect == self.hovered_button else (255, 255, 255)
-            pygame.draw.rect(self.game.screen, border_color, button_rect.move(0, self.scroll_offset), 2)
+            pygame.draw.rect(self.game.screen, border_color, adjusted_rect, 2)
             
             # Draw profile name
             name_text = self.font.render(profile_name, True, pygame.Color('white'))
-            text_rect = name_text.get_rect(center=button_rect.move(0, self.scroll_offset).center)
+            text_rect = name_text.get_rect(center=adjusted_rect.center)
             self.game.screen.blit(name_text, text_rect)
         
         # Draw back button
