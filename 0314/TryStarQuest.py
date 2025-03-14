@@ -1812,7 +1812,7 @@ class CosmicCopyState(State):
         # Load the labels
         self.alphabet_labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
         self.number_labels = [str(i) for i in range(10)]
-        self.phrase_labels = ["goodbye", "hello", "iloveyou","sorry"]
+        self.phrase_labels = ["goodbye", "hello", "iloveyou", "sorry"]
 
         # Back button
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
@@ -1824,7 +1824,7 @@ class CosmicCopyState(State):
         self.back_button_collision.y = 35
 
         self.hovered_button = None
-        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.webcam = None  # Initialize webcam as None
 
         # Timer for try again message
         self.start_time = None
@@ -1835,9 +1835,15 @@ class CosmicCopyState(State):
         self.webcam_size = (350, 263)
 
     def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
         self.randomize_item()
         self.correct = False
         self.start_time = None
+
+    def exit(self):
+        if self.webcam:
+            self.webcam.release()  # Release the webcam
+            self.webcam = None
 
     def randomize_item(self):
         choice = random.choice(["alphabet", "number", "phrase"])
@@ -1865,94 +1871,95 @@ class CosmicCopyState(State):
         self.game.screen.blit(self.current_item, self.current_item_rect.topleft)  # Centered display
 
         # Update webcam feed
-        ret, webcam_frame = self.webcam.read()
-        if ret:
-            # Flip the webcam frame horizontally to mirror it
-            webcam_frame = cv2.flip(webcam_frame, 1)
-            h, w, _ = webcam_frame.shape
-            roi = webcam_frame[:, w//2:]  # Right side ROI
-            roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
-            result = self.hands.process(roi_rgb)
-            
-            if result.multi_hand_landmarks:
-                for hand_landmarks in result.multi_hand_landmarks:
-                    landmarks = []
-                    for lm in hand_landmarks.landmark:
+        if self.webcam:
+            ret, webcam_frame = self.webcam.read()
+            if ret:
+                # Flip the webcam frame horizontally to mirror it
+                webcam_frame = cv2.flip(webcam_frame, 1)
+                h, w, _ = webcam_frame.shape
+                roi = webcam_frame[:, w//2:]  # Right side ROI
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                result = self.hands.process(roi_rgb)
+
+                if result.multi_hand_landmarks:
+                    for hand_landmarks in result.multi_hand_landmarks:
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            if self.expected_value in self.alphabet_labels:
+                                landmarks.extend([lm.x, lm.y])  # Use only x and y coordinates for alphabet
+                            else:
+                                landmarks.extend([lm.x, lm.y, lm.z])  # Use x, y, and z coordinates for numbers and phrases
+
+                        # Convert landmarks to NumPy array and reshape
+                        input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+
+                        # Perform inference based on the type of expected value
                         if self.expected_value in self.alphabet_labels:
-                            landmarks.extend([lm.x, lm.y])  # Use only x and y coordinates for alphabet
+                            self.interpreter = self.alphabet_model
+                        elif self.expected_value in self.number_labels:
+                            self.interpreter = self.number_model
                         else:
-                            landmarks.extend([lm.x, lm.y, lm.z])  # Use x, y, and z coordinates for numbers and phrases
-                    
-                    # Convert landmarks to NumPy array and reshape
-                    input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
-                    
-                    # Perform inference based on the type of expected value
-                    if self.expected_value in self.alphabet_labels:
-                        self.interpreter = self.alphabet_model
-                    elif self.expected_value in self.number_labels:
-                        self.interpreter = self.number_model
-                    else:
-                        self.interpreter = self.phrase_model
+                            self.interpreter = self.phrase_model
 
-                    self.interpreter.set_tensor(self.interpreter.get_input_details()[0]['index'], input_data)
-                    self.interpreter.invoke()
-                    output_data = self.interpreter.get_tensor(self.interpreter.get_output_details()[0]['index'])
-                    prediction = np.argmax(output_data)
-                    
-                    # Check if the prediction is correct
-                    if self.expected_value in self.alphabet_labels + self.number_labels:
-                        if (self.expected_value in self.alphabet_labels and prediction < len(self.alphabet_labels) and self.expected_value == self.alphabet_labels[prediction]) or \
-                           (self.expected_value in self.number_labels and prediction < len(self.number_labels) and self.expected_value == self.number_labels[prediction]):
-                            self.correct = True
-                            if self.start_time is None:
-                                self.start_time = time.time()  # Start the timer
+                        self.interpreter.set_tensor(self.interpreter.get_input_details()[0]['index'], input_data)
+                        self.interpreter.invoke()
+                        output_data = self.interpreter.get_tensor(self.interpreter.get_output_details()[0]['index'])
+                        prediction = np.argmax(output_data)
+
+                        # Check if the prediction is correct
+                        if self.expected_value in self.alphabet_labels + self.number_labels:
+                            if (self.expected_value in self.alphabet_labels and prediction < len(self.alphabet_labels) and self.expected_value == self.alphabet_labels[prediction]) or \
+                               (self.expected_value in self.number_labels and prediction < len(self.number_labels) and self.expected_value == self.number_labels[prediction]):
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                            else:
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                                elif time.time() - self.start_time > 5:
+                                    self.correct = False
+                                    self.start_time = None
                         else:
-                            if self.start_time is None:
-                                self.start_time = time.time()
-                            elif time.time() - self.start_time > 5:
-                                self.correct = False
-                                self.start_time = None
-                    else:
-                        if prediction < len(self.phrase_labels) and self.expected_value == self.phrase_labels[prediction]:
-                            self.correct = True
-                            if self.start_time is None:
-                                self.start_time = time.time()  # Start the timer
-                        else:
-                            if self.start_time is None:
-                                self.start_time = time.time()
-                            elif time.time() - self.start_time > 5:
-                                self.correct = False
-                                self.start_time = None
+                            if prediction < len(self.phrase_labels) and self.expected_value == self.phrase_labels[prediction]:
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                            else:
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                                elif time.time() - self.start_time > 5:
+                                    self.correct = False
+                                    self.start_time = None
 
-                    # Draw landmarks
-                    self.mp_drawing.draw_landmarks(
-                        roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
-                        self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
-                    )
-            
-            # Display result
-            if self.correct:
-                result_text = "Correct"
-                if self.start_time and time.time() - self.start_time > 1.5:  # Check if 1.5 seconds have passed
-                    self.randomize_item()  # Proceed to the next item
-                    self.correct = False  # Reset correct status
-                    self.start_time = None  # Reset start time
-            else:
-                result_text = "Try Again" if self.start_time else ""
-                self.start_time = None  # Reset the timer if not correct
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
 
-            result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+                # Display result
+                if self.correct:
+                    result_text = "Correct"
+                    if self.start_time and time.time() - self.start_time > 1.5:  # Check if 1.5 seconds have passed
+                        self.randomize_item()  # Proceed to the next item
+                        self.correct = False  # Reset correct status
+                        self.start_time = None  # Reset start time
+                else:
+                    result_text = "Try Again" if self.start_time else ""
+                    self.start_time = None  # Reset the timer if not correct
 
-            # Calculate the x-coordinate to center the text below the webcam
-            result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
-            result_y = self.webcam_position[1] + self.webcam_size[1] + 10  # Adjust the y-coordinate as needed
+                result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
 
-            self.game.screen.blit(result_surface, (result_x, result_y))
+                # Calculate the x-coordinate to center the text below the webcam
+                result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
+                result_y = self.webcam_position[1] + self.webcam_size[1] + 10  # Adjust the y-coordinate as needed
 
-            # Convert the webcam frame to a surface and blit it
-            webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
-            self.game.screen.blit(webcam_surface, self.webcam_position)
+                self.game.screen.blit(result_surface, (result_x, result_y))
+
+                # Convert the webcam frame to a surface and blit it
+                webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+                self.game.screen.blit(webcam_surface, self.webcam_position)
 
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
@@ -1976,6 +1983,11 @@ class CosmicCopyState(State):
                 self.correct = False  # Reset correct status
                 self.start_time = None  # Reset start time
                 self.game.change_state("playing_home")
+
+    def celebrate(self):
+        # Add celebration effect like confetti
+        pass
+    
 class StarQuestState(State):
     def __init__(self, game):
         super().__init__(game)
@@ -1993,7 +2005,7 @@ class StarQuestState(State):
         self.load_images()
         self.load_model()
         self.setup_mediapipe()
-        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        self.webcam = None  # Initialize webcam as None
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
         self.hovered_button = None
@@ -2027,6 +2039,7 @@ class StarQuestState(State):
         self.mp_drawing = mp.solutions.drawing_utils
 
     def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
         self.current_level = 0
         self.current_step = 0
         self.correct = False
@@ -2034,7 +2047,7 @@ class StarQuestState(State):
 
     def exit(self):
         if self.webcam:
-            self.webcam.release()
+            self.webcam.release()  # Release the webcam
             self.webcam = None
 
     def update(self):
@@ -2121,7 +2134,7 @@ class StarQuestState(State):
     def celebrate(self):
         # Add celebration effect like confetti
         pass
-
+    
 class LoadingState(State):
     def __init__(self, game):
         super().__init__(game)
