@@ -80,49 +80,42 @@ class OnScreenKeyboardState(State):
         self.text = initial_text
         self.font = pygame.font.Font(None, 36)
         self.done_button_rect = pygame.Rect(924, 10, 90, 50)
+        self.shift = False  # Track shift key state
 
-        # On-screen keyboard layout
+        # On-screen keyboard layout with a Shift key
         self.keyboard_keys = [
             "1234567890",
             "QWERTYUIOP",
             "ASDFGHJKL",
             "ZXCVBNM⌫",
-            "@. "
+            "⇧@. "
         ]
 
-        # Key dimensions
         self.key_width = 80
         self.key_height = 80
         self.key_margin = 10
         self.spacebar_width = 700  # Longer spacebar
-
-    def enter(self):
-        if self.game.current_state_data:
-            self.text = self.game.current_state_data
 
     def draw_keyboard(self):
         """Draw the on-screen keyboard."""
         y_offset = 100  # Starting position for the keyboard
 
         for row in self.keyboard_keys:
-            # Calculate the width of the current row
             row_width = sum(
                 self.spacebar_width if key == " " else self.key_width for key in row
             ) + (len(row) - 1) * self.key_margin
 
-            # Center horizontally
             x_offset = (self.game.screen.get_width() - row_width) // 2
 
             for key in row:
-                # Handle spacebar size
-                if key == " ":
-                    key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width, self.key_height)
-                else:
-                    key_rect = pygame.Rect(x_offset, y_offset, self.key_width, self.key_height)
+                key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width if key == " " else self.key_width, self.key_height)
 
                 # Draw key
                 pygame.draw.rect(self.game.screen, (200, 200, 200), key_rect, border_radius=10)
-                key_text = self.font.render(key, True, (0, 0, 0))
+
+                # Display uppercase or lowercase letters
+                key_display = key.upper() if self.shift and key.isalpha() else key.lower()
+                key_text = self.font.render(key_display, True, (0, 0, 0))
                 text_rect = key_text.get_rect(center=key_rect.center)
                 self.game.screen.blit(key_text, text_rect.topleft)
 
@@ -133,7 +126,7 @@ class OnScreenKeyboardState(State):
 
     def handle_keyboard_click(self, pos):
         """Handle clicking on the on-screen keyboard."""
-        y_offset = 100  # Same offset as in draw function
+        y_offset = 100
 
         for row in self.keyboard_keys:
             row_width = sum(
@@ -143,21 +136,18 @@ class OnScreenKeyboardState(State):
             x_offset = (self.game.screen.get_width() - row_width) // 2
 
             for key in row:
-                if key == " ":
-                    key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width, self.key_height)
-                else:
-                    key_rect = pygame.Rect(x_offset, y_offset, self.key_width, self.key_height)
+                key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width if key == " " else self.key_width, self.key_height)
 
-                # Check for mouse click inside the key
                 if key_rect.collidepoint(pos):
                     if key == "⌫":
                         self.text = self.text[:-1]  # Backspace
                     elif key == " ":
                         self.text += " "  # Space
+                    elif key == "⇧":
+                        self.shift = not self.shift  # Toggle shift state
                     else:
-                        self.text += key  # Add character to text
+                        self.text += key.upper() if self.shift else key.lower()  # Add character
 
-                # Move to the next key
                 x_offset += (self.spacebar_width + self.key_margin) if key == " " else (self.key_width + self.key_margin)
 
             y_offset += self.key_height + self.key_margin
@@ -170,7 +160,7 @@ class OnScreenKeyboardState(State):
                 self.handle_keyboard_click(event.pos)
 
     def render(self):
-        self.game.screen.fill((255, 255, 255))  # Clear screen with white background
+        self.game.screen.fill((255, 255, 255))  # Clear screen
 
         # Draw input box
         pygame.draw.rect(self.game.screen, pygame.Color('white'), pygame.Rect(10, 10, 900, 50), 2)
@@ -184,7 +174,6 @@ class OnScreenKeyboardState(State):
 
         # Draw the on-screen keyboard
         self.draw_keyboard()
-
                 
 class VideoWithSignInState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None, next_button_collision_height=50):
@@ -597,11 +586,11 @@ class LoadGameState(State):
 
         # Load LOAD and DELETE button images
         self.load_button_img = pygame.image.load("BUTTONS/LOAD.png").convert_alpha()
-        self.load_button_rect = self.load_button_img.get_rect(topleft=(924, 10))
+        self.load_button_rect = self.load_button_img.get_rect()
         self.load_button_collision = get_collision_rect(self.load_button_img)
 
         self.delete_button_img = pygame.image.load("BUTTONS/DELETE.png").convert_alpha()
-        self.delete_button_rect = self.delete_button_img.get_rect(topleft=(824, 10))
+        self.delete_button_rect = self.delete_button_img.get_rect()
         self.delete_button_collision = get_collision_rect(self.delete_button_img)
 
         # Load background image
