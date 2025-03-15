@@ -4,6 +4,17 @@
     "progress": {
         "level": 1,
         "score": 0,
-        "completed_lessons": []
+        "completed_lessons": [
+            "A",
+            "B",
+            "C",
+            "0",
+            "1",
+            "2",
+            "3",
+            "HELLO",
+            "THANKYOU",
+            "ILOVEYOU"
+        ]
     }
 }
