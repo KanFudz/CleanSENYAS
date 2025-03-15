@@ -1552,7 +1552,7 @@ class GalaxyExplorerPhrasesstate(VideoState):
         self.buttons = []
         
         button_data = [
-            ("BUTTONS/Phrases/GOODBYE.png", "playing_goodbye"), ("BUTTONS/Phrases/HELLO.png", "playing_hello"),
+            ("BUTTONS/Phrases/THANKYOU.png", "playing_thankyou"), ("BUTTONS/Phrases/HELLO.png", "playing_hello"),
             ("BUTTONS/Phrases/ILOVEYOU.png", "playing_iloveyou"), ("BUTTONS/Phrases/SORRY.png", "playing_sorry"),                                            
         ]
         
@@ -1688,7 +1688,7 @@ class PhraseDisplayState(State):
         self.mp_drawing = mp.solutions.drawing_utils
 
         # Label map
-        self.labels = ["GOODBYE", "HELLO", "ILOVEYOU", "SORRY"]
+        self.labels = ["THANKYOU", "HELLO", "ILOVEYOU", "SORRY"]
 
         # Timer for try again message
         self.start_time = None
@@ -1846,7 +1846,7 @@ class CosmicCopyState(State):
         # Load the labels
         self.alphabet_labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
         self.number_labels = [str(i) for i in range(10)]
-        self.phrase_labels = ["goodbye", "hello", "iloveyou", "sorry"]
+        self.phrase_labels = ["thankyou", "hello", "iloveyou", "sorry"]
 
         # Back button
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
@@ -2307,7 +2307,7 @@ class Game:
         # Add phrase states dynamically
         self.phrase_sequence = []
 
-        phrases = ["HELLO", "GOODBYE", "ILOVEYOU", "SORRY"]
+        phrases = ["HELLO", "THANKYOU", "ILOVEYOU", "SORRY"]
         for phrase in phrases:
             state_name = f"playing_{phrase.lower()}"
             image_path = os.path.join("GAME PROPER", "GEXPLORER PHRASES", f"{phrase}.png")
