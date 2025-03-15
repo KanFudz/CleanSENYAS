@@ -1282,17 +1282,21 @@ class AlphabetDisplayState(State):
                 with open(save_path, "r") as f:
                     save_data = json.load(f)
                 
-                # Update progress
-                if "completed_lessons" not in save_data["progress"]:
-                    save_data["progress"]["completed_lessons"] = []
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
                 
-                if self.expected_letter not in save_data["progress"]["completed_lessons"]:
-                    save_data["progress"]["completed_lessons"].append(self.expected_letter)
+                if "galaxy_explorer" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"] = []
+                
+                progress_entry = f"Alphabets: {self.expected_letter}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["galaxy_explorer"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"].append(progress_entry)
                 
                 with open(save_path, "w") as f:
                     json.dump(save_data, f, indent=4)
                 
-                print(f"Progress saved for letter: {self.expected_letter}")
+                print(f"Progress saved for letter: {self.expected_letter} in Galaxy Explorer")
 
 class GalaxyExplorerNumberState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None):
@@ -1574,17 +1578,21 @@ class NumberDisplayState(State):
                 with open(save_path, "r") as f:
                     save_data = json.load(f)
                 
-                # Update progress
-                if "completed_lessons" not in save_data["progress"]:
-                    save_data["progress"]["completed_lessons"] = []
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
                 
-                if str(self.expected_number) not in save_data["progress"]["completed_lessons"]:
-                    save_data["progress"]["completed_lessons"].append(str(self.expected_number))
+                if "galaxy_explorer" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"] = []
+                
+                progress_entry = f"Number: {self.expected_number}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["galaxy_explorer"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"].append(progress_entry)
                 
                 with open(save_path, "w") as f:
                     json.dump(save_data, f, indent=4)
                 
-                print(f"Progress saved for number: {self.expected_number}")
+                print(f"Progress saved for number: {self.expected_number} in Galaxy Explorer")
 
 class GalaxyExplorerPhrasesstate(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None):
@@ -1875,17 +1883,21 @@ class PhraseDisplayState(State):
                 with open(save_path, "r") as f:
                     save_data = json.load(f)
                 
-                # Update progress
-                if "completed_lessons" not in save_data["progress"]:
-                    save_data["progress"]["completed_lessons"] = []
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
                 
-                if self.expected_phrase not in save_data["progress"]["completed_lessons"]:
-                    save_data["progress"]["completed_lessons"].append(self.expected_phrase)
+                if "galaxy_explorer" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"] = []
+                
+                progress_entry = f"Phrase: {self.expected_phrase}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["galaxy_explorer"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"].append(progress_entry)
                 
                 with open(save_path, "w") as f:
                     json.dump(save_data, f, indent=4)
                 
-                print(f"Progress saved for phrase: {self.expected_phrase}")
+                print(f"Progress saved for phrase: {self.expected_phrase} in Galaxy Explorer")
                 
 class CosmicCopyState(State):
     def __init__(self, game):
@@ -2010,6 +2022,7 @@ class CosmicCopyState(State):
                                 self.correct = True
                                 if self.start_time is None:
                                     self.start_time = time.time()  # Start the timer
+                                    self.save_progress("alphabet" if self.expected_value in self.alphabet_labels else "number", self.expected_value)
                             else:
                                 if self.start_time is None:
                                     self.start_time = time.time()
@@ -2021,6 +2034,7 @@ class CosmicCopyState(State):
                                 self.correct = True
                                 if self.start_time is None:
                                     self.start_time = time.time()  # Start the timer
+                                    self.save_progress("phrase", self.expected_value)
                             else:
                                 if self.start_time is None:
                                     self.start_time = time.time()
@@ -2081,9 +2095,38 @@ class CosmicCopyState(State):
                 self.start_time = None  # Reset start time
                 self.game.change_state("playing_home")
 
-    def celebrate(self):
-        # Add celebration effect like confetti
-        pass
+    def save_progress(self, item_type, item_value):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "cosmic_copy" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["cosmic_copy"] = []
+
+                if item_type == "alphabet":
+                    progress_entry = f"Alphabets: {item_value}"
+                elif item_type == "number":
+                    progress_entry = f"Numbers: {item_value}"
+                elif item_type == "phrase":
+                    progress_entry = f"Phrase: {item_value}"
+                else:
+                    return  # Invalid item type
+
+                if progress_entry not in save_data["progress"]["completed_lessons"]["cosmic_copy"]:
+                    save_data["progress"]["completed_lessons"]["cosmic_copy"].append(progress_entry)
+                    save_data["progress"]["completed_lessons"]["cosmic_copy"].sort()  # Sort the entries
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for {item_type}: {item_value} in Cosmic Copy")
 
 class StarQuestState(State):
     def __init__(self, game):
@@ -2197,6 +2240,7 @@ class StarQuestState(State):
                         if self.current_step >= len(steps):
                             self.current_step = len(steps)
                             self.celebrate()
+                            self.save_progress(level)  # Save progress when the word is completed
                             self.current_level += 1
                             if self.current_level >= len(self.levels):
                                 self.current_level = 0
@@ -2229,9 +2273,34 @@ class StarQuestState(State):
                 self.game.change_state("playing_home")
 
     def celebrate(self):
-        # Add celebration effect like confetti
+        # Add celebration logic here (e.g., play a sound, show an animation, etc.)
         pass
-    
+
+    def save_progress(self, word):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "star_quest" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["star_quest"] = []
+
+                progress_entry = f"Fingerspelling: {word}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["star_quest"]:
+                    save_data["progress"]["completed_lessons"]["star_quest"].append(progress_entry)
+                    save_data["progress"]["completed_lessons"]["star_quest"].sort()  # Sort the entries
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for word: {word} in Star Quest")
+                    
 class LoadingState(State):
     def __init__(self, game):
         super().__init__(game)
