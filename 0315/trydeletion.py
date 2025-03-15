@@ -88,7 +88,7 @@ class OnScreenKeyboardState(State):
             "QWERTYUIOP",
             "ASDFGHJKL",
             "ZXCVBNM⌫",
-            "⇧@. "
+            "@. ⇧"
         ]
 
         self.key_width = 80
