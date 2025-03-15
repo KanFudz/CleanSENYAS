@@ -79,7 +79,8 @@ class OnScreenKeyboardState(State):
         super().__init__(game)
         self.text = initial_text
         self.font = pygame.font.Font("ARIAL.ttf", 36) 
-        self.done_button_rect = pygame.Rect(924, 10, 90, 50)
+        self.done_button_image = pygame.image.load("DONE.png")
+        self.done_button_rect = self.done_button_image.get_rect(topleft=(924, 10))
         self.shift = False  # Track shift key state
 
         # On-screen keyboard layout with a Shift key
@@ -88,7 +89,7 @@ class OnScreenKeyboardState(State):
             "QWERTYUIOP",
             "ASDFGHJKL",
             "ZXCVBNM←",
-            "@. ↑"
+            "↑@ ."
         ]
 
         self.key_width = 80
@@ -167,14 +168,12 @@ class OnScreenKeyboardState(State):
         txt_surface = self.font.render(self.text, True, pygame.Color('black'))
         self.game.screen.blit(txt_surface, (15, 15))
 
-        # Draw Done button
-        pygame.draw.rect(self.game.screen, (0, 200, 0), self.done_button_rect, border_radius=10)
-        done_text = self.font.render("Done", True, (255, 255, 255))
-        self.game.screen.blit(done_text, (self.done_button_rect.x + 10, self.done_button_rect.y + 10))
+        # Draw Done button with the image
+        self.game.screen.blit(self.done_button_image, self.done_button_rect.topleft)
 
         # Draw the on-screen keyboard
         self.draw_keyboard()
-                
+
 class VideoWithSignInState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None, next_button_collision_height=50):
         super().__init__(game, video_key, next_state, audio_file)
