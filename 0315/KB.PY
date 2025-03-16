@@ -79,9 +79,11 @@ class OnScreenKeyboardState(State):
         super().__init__(game)
         self.text = initial_text
         self.font = pygame.font.Font("ARIAL.ttf", 36) 
-        self.done_button_image = pygame.image.load("DONE.png")
-        self.done_button_rect = self.done_button_image.get_rect(topleft=(924, 10))
+        self.done_button_image = pygame.image.load("BUTTONS/DONE.png").convert_alpha()
+        self.done_button_rect = self.done_button_image.get_rect(topright=(0, 0))
+        self.done_button_collision = get_collision_rect(self.done_button_image)
         self.shift = False  # Track shift key state
+        
 
         # On-screen keyboard layout with a Shift key
         self.keyboard_keys = [
