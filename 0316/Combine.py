@@ -1,0 +1,2492 @@
+import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+import pygame
+import sys
+import cv2
+import json
+import time
+import tensorflow.lite as tflite
+import mediapipe as mp
+import numpy as np
+import threading
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import socket
+
+
+def get_collision_rect(img):
+    """ Returns a rect representing the non-transparent area of an image """
+    mask = pygame.mask.from_surface(img)
+    if mask.count() == 0:
+        return img.get_rect()
+    
+    collision_rect = mask.get_bounding_rects()[0]
+    # Adjust the collision rect to match the full image position
+    full_rect = img.get_rect()
+    collision_rect.x += full_rect.x
+    collision_rect.y += full_rect.y
+    return collision_rect
+
+class State:
+    def __init__(self, game):
+        self.game = game
+    
+    def enter(self):
+        pass
+    
+    def exit(self):
+        pass
+    
+    def handle_event(self, event):
+        pass
+    
+    def update(self):
+        pass
+    
+    def render(self):
+        pass
+
+class VideoState(State):
+    def __init__(self, game, video_key, next_state=None, audio_file=None):
+        super().__init__(game)
+        self.video_key = video_key
+        self.next_state = next_state
+        self.audio_file = audio_file
+        self.sound = None if audio_file is None else pygame.mixer.Sound(audio_file)
+
+    def enter(self):
+        self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+        if self.sound:
+            self.sound.play()  # Play the corresponding audio file
+
+    def exit(self):
+        if self.sound:
+            self.sound.stop()  # Stop audio when exiting
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+            self.game.screen.blit(surface, (0, 0))
+        else:
+            if self.sound:
+                self.sound.stop()  # Stop audio when video ends
+            self.game.videos[self.video_key].release()
+            if self.next_state:
+                self.game.change_state(self.next_state)
+
+class OnScreenKeyboardState(State):
+    def __init__(self, game, initial_text=''):
+        super().__init__(game)
+        self.text = initial_text
+        self.font = pygame.font.Font("ARIAL.ttf", 36) 
+        
+        # Load Done button image
+        self.done_button_image = pygame.image.load("BUTTONS/DONE.png").convert_alpha()
+        self.done_button_rect = self.done_button_image.get_rect()  # Adjust position as needed
+        self.done_button_collision = get_collision_rect(self.done_button_image)
+
+        self.shift = False  # Track shift key state
+
+        # On-screen keyboard layout with a Shift key
+        self.keyboard_keys = [
+            "1234567890",
+            "QWERTYUIOP",
+            "ASDFGHJKL",
+            "ZXCVBNM←",
+            "@↑ ."
+        ]
+
+        self.key_width = 80
+        self.key_height = 80
+        self.key_margin = 10
+        self.spacebar_width = 700  # Longer spacebar
+
+        self.hovered_button = None  # Track hovered button
+
+    def draw_keyboard(self):
+        """Draw the on-screen keyboard."""
+        y_offset = 100  # Starting position for the keyboard
+
+        for row in self.keyboard_keys:
+            row_width = sum(
+                self.spacebar_width if key == " " else self.key_width for key in row
+            ) + (len(row) - 1) * self.key_margin
+
+            x_offset = (self.game.screen.get_width() - row_width) // 2
+
+            for key in row:
+                key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width if key == " " else self.key_width, self.key_height)
+
+                # Draw key
+                pygame.draw.rect(self.game.screen, (200, 200, 200), key_rect, border_radius=10)
+
+                # Display uppercase or lowercase letters
+                key_display = key.upper() if self.shift and key.isalpha() else key.lower()
+                key_text = self.font.render(key_display, True, (0, 0, 0))
+                text_rect = key_text.get_rect(center=key_rect.center)
+                self.game.screen.blit(key_text, text_rect.topleft)
+
+                # Move to the next key
+                x_offset += (self.spacebar_width + self.key_margin) if key == " " else (self.key_width + self.key_margin)
+
+            y_offset += self.key_height + self.key_margin
+
+    def handle_keyboard_click(self, pos):
+        """Handle clicking on the on-screen keyboard."""
+        y_offset = 100
+
+        for row in self.keyboard_keys:
+            row_width = sum(
+                self.spacebar_width if key == " " else self.key_width for key in row
+            ) + (len(row) - 1) * self.key_margin
+
+            x_offset = (self.game.screen.get_width() - row_width) // 2
+
+            for key in row:
+                key_rect = pygame.Rect(x_offset, y_offset, self.spacebar_width if key == " " else self.key_width, self.key_height)
+
+                if key_rect.collidepoint(pos):
+                    if key == "←":
+                        self.text = self.text[:-1]  # Backspace
+                    elif key == " ":
+                        self.text += " "  # Space
+                    elif key == "↑":
+                        self.shift = not self.shift  # Toggle shift state
+                    else:
+                        self.text += key.upper() if self.shift else key.lower()  # Add character
+
+                x_offset += (self.spacebar_width + self.key_margin) if key == " " else (self.key_width + self.key_margin)
+
+            y_offset += self.key_height + self.key_margin
+
+    def handle_event(self, event):
+        if event.type in [pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN]:
+            if self.done_button_collision.collidepoint(event.pos):
+                self.hovered_button = self.done_button_collision
+            else:
+                self.hovered_button = None
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.done_button_collision.collidepoint(event.pos):
+                self.game.change_state("playing_lgsign", self.text)
+            else:
+                self.handle_keyboard_click(event.pos)
+        
+        # Check delete button
+        if event.type in [pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN]:
+            if self.done_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.done_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.done_button_collision
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:  # Left mouse button
+                self.dragging = True
+                self.drag_start_y = event.pos[1]
+
+            if self.done_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+
+    def render(self):
+        self.game.screen.fill((255, 255, 255))  # Clear screen
+
+        # Draw input box
+        pygame.draw.rect(self.game.screen, pygame.Color('white'), pygame.Rect(10, 10, 900, 50), 2)
+        txt_surface = self.font.render(self.text, True, pygame.Color('black'))
+        self.game.screen.blit(txt_surface, (15, 15))
+
+        # Draw the on-screen keyboard
+        self.draw_keyboard()
+
+        # Draw Done button with the image 
+        self.game.screen.blit(self.done_button_image, self.done_button_rect.topleft)
+        if self.hovered_button == self.done_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.done_button_collision, 3)
+
+class VideoWithSignInState(VideoState):
+    def __init__(self, game, video_key, next_state=None, audio_file=None, next_button_collision_height=50):
+        super().__init__(game, video_key, next_state, audio_file)
+        self.font = pygame.font.Font(None, 24)
+        
+        # Create input box and button using consistent approach
+        self.input_box_rect = pygame.Rect(362, 300, 300, 50)
+        # Create an invisible surface for the input box for consistency with button approach
+        self.input_box_surf = pygame.Surface((300, 50), pygame.SRCALPHA)
+        self.input_box_surf.fill((0, 0, 0, 0))  # Transparent
+
+        # Load NEXT.png button image
+        self.next_button_img = pygame.image.load("BUTTONS/NEXT.png").convert_alpha()
+        self.next_button_rect = self.next_button_img.get_rect(topleft=(462, 370))
+        self.next_button_collision = get_collision_rect(self.next_button_img)
+
+        # Add back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+        
+        # Adjust the height, width, x, and y of the collision rectangle for back button
+        self.text = ''
+        self.active = False
+        self.last_frame = None
+        self.hovered_button = None
+
+    def enter(self):
+        super().enter()
+        if self.game.current_state_data:
+            self.text = self.game.current_state_data
+        self.active = False
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+            self.game.screen.blit(self.last_frame, (0, 0))
+        else:
+            if self.last_frame:
+                self.game.screen.blit(self.last_frame, (0, 0))
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            # Check next button hover
+            if self.next_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.next_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.next_button_collision
+            # Check back button hover
+            elif self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+            else:
+                self.hovered_button = None
+                
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.input_box_rect.collidepoint(event.pos):
+                self.active = not self.active
+                self.game.change_state("on_screen_keyboard", self.text)
+            else:
+                self.active = False
+                
+            # Handle next button click
+            if self.next_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                print(f"Entered text: {self.text}")
+                # Save the profile name and create a save file
+                if self.text.strip():  # Only save if text isn't empty
+                    self.save_profile(self.text)
+                # Go to home screen
+                self.game.change_state("playing_home")
+                
+            # Handle back button click
+            elif self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Go back to blgsign screen
+                self.game.change_state("playing_blgsign")
+        
+        if event.type == pygame.KEYDOWN:
+            if self.active:
+                if event.key == pygame.K_RETURN:
+                    print(f"Entered text: {self.text}")
+                    # Save the profile name and create a save file
+                    if self.text.strip():  # Only save if text isn't empty
+                        self.save_profile(self.text)
+                    # Go to home screen
+                    self.game.change_state("playing_home")
+                elif event.key == pygame.K_BACKSPACE:
+                    self.text = self.text[:-1]
+                else:
+                    self.text += event.unicode
+
+    def save_profile(self, profile_name):
+        """Save the profile name to a save file"""
+        # Set current profile in the game
+        self.game.current_profile = profile_name
+        
+        # Create save directory if it doesn't exist
+        if not os.path.exists("saves"):
+            os.makedirs("saves")
+        
+        # Create a new save file with initial data
+        save_data = {
+            "name": profile_name,
+            "created_at": pygame.time.get_ticks(),
+            "progress": {
+                "level": 1,
+                "score": 0,
+                "completed_lessons": []
+            }
+        }
+        
+        # Save to JSON file
+        with open(f"saves/{profile_name}.json", "w") as f:
+            json.dump(save_data, f, indent=4)
+        
+        print(f"Profile '{profile_name}' saved successfully.")
+
+    def render(self):
+        if self.last_frame:
+            self.game.screen.blit(self.last_frame, (0, 0))
+            
+        # Draw input box
+        pygame.draw.rect(self.game.screen, pygame.Color('white'), self.input_box_rect, 2)
+        txt_surface = self.font.render(self.text, True, pygame.Color('black'))
+        self.game.screen.blit(txt_surface, (self.input_box_rect.x + 5, self.input_box_rect.y + (self.input_box_rect.height - txt_surface.get_height()) // 2))
+        
+        # Draw NEXT button
+        self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
+        
+        # Draw BACK button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+        
+        # Draw highlight if any button is hovered
+        if self.hovered_button == self.next_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+        elif self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+class WelcomeState(State):
+    def __init__(self, game, background_video, button_data, audio_file=None):
+        super().__init__(game)
+        self.background_video = background_video
+        self.buttons = []
+        
+        # Load button images properly
+        for img_path, _, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+            
+        self.audio_file = audio_file
+        self.sound = None if audio_file is None else pygame.mixer.Sound(audio_file)
+        self.last_frame = None
+        self.video_started = False
+        self.buttons_active = True  
+        self.hovered_button = None  
+
+    def enter(self):
+        self.video_started = False
+        self.buttons_active = True  
+        self.hovered_button = None  
+        self.game.videos[self.background_video].set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame = self.game.videos[self.background_video].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+
+    def exit(self):
+        self.game.videos[self.background_video].release()
+        if self.sound:
+            self.sound.stop()  # Stop audio when exiting
+
+    def update(self):
+        if not self.video_started:
+            if self.last_frame:
+                self.game.screen.blit(self.last_frame, (0, 0))
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)  # GREEN highlight on hover
+
+        else:
+            ret, frame = self.game.videos[self.background_video].read()
+            if ret:
+                self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+                self.game.screen.blit(self.last_frame, (0, 0))
+            else:
+                self.game.videos[self.background_video].release()
+                self.game.change_state("playing_intro")
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION and self.buttons_active:
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+            
+            self.hovered_button = hovered
+
+        if event.type == pygame.MOUSEBUTTONDOWN and self.buttons_active:
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    if self.sound:
+                        self.sound.play()  # Play the corresponding audio file
+                    self.video_started = True
+                    self.buttons_active = False  
+                    break
+
+class UserTypeState(VideoState):
+    def __init__(self, game, video_key, button_data, audio_file=None):
+        super().__init__(game, video_key, None, audio_file)
+        self.buttons = []
+        
+        # Load button images properly
+        for img_path, _, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+            
+        self.last_frame = None
+        self.video_finished = False
+        self.buttons_active = True  
+        self.hovered_button = None  
+
+    def enter(self):
+        super().enter()
+        self.video_finished = False
+        self.buttons_active = True  
+        self.hovered_button = None  
+
+    def exit(self):
+        super().exit()
+
+    def update(self):
+        if not self.video_finished:
+            ret, frame = self.game.videos[self.video_key].read()
+            if ret:
+                self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+                self.game.screen.blit(self.last_frame, (0, 0))
+            else:
+                self.video_finished = True  
+        else:
+            if self.last_frame:
+                self.game.screen.blit(self.last_frame, (0, 0))
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION and self.buttons_active:
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+
+            self.hovered_button = hovered
+
+        if event.type == pygame.MOUSEBUTTONDOWN and self.video_finished and self.buttons_active:
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    self.game.change_state(state)
+                    self.buttons_active = False  
+                    break
+
+# New class for the BLGSIGN state with NEW GAME and LOAD GAME buttons
+class BLGSignState(State):
+    def __init__(self, game, video_key, button_data, audio_file=None):
+        super().__init__(game)
+        self.video_key = video_key
+        self.buttons = []
+        
+        # Load button images properly
+        for img_path, _, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+        
+        # Load back button image
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        self.audio_file = audio_file
+        self.sound = None if audio_file is None else pygame.mixer.Sound(audio_file)
+        self.last_frame = None
+        self.video_finished = False
+        self.buttons_active = True  
+        self.hovered_button = None  
+
+    def enter(self):
+        self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+        self.video_finished = False
+        self.buttons_active = True  
+        self.hovered_button = None  
+        if self.sound:
+            self.sound.play()  # Play the corresponding audio file
+
+    def exit(self):
+        self.game.videos[self.video_key].release()
+        if self.sound:
+            self.sound.stop()  # Stop audio when exiting
+
+    def update(self):
+        if not self.video_finished:
+            ret, frame = self.game.videos[self.video_key].read()
+            if ret:
+                self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+                self.game.screen.blit(self.last_frame, (0, 0))
+            else:
+                self.video_finished = True  
+        
+        # Always display the buttons after the video is finished
+        if self.video_finished:
+            if self.last_frame:
+                self.game.screen.blit(self.last_frame, (0, 0))
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)  # Cyan highlight
+            
+            # Draw the back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)  # Cyan highlight
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION and self.buttons_active:
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+
+            self.hovered_button = hovered
+
+            # Check if the back button is hovered
+            if self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+
+        if event.type == pygame.MOUSEBUTTONDOWN and self.video_finished and self.buttons_active:
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    self.game.change_state(state)
+                    break
+
+            # Check if the back button is clicked
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_usertype")
+
+# Load State
+class LoadGameState(State):
+    def __init__(self, game, video_key, audio_file=None):
+        super().__init__(game)
+        self.video_key = video_key
+        self.audio_file = audio_file
+        self.sound = None if audio_file is None else pygame.mixer.Sound(audio_file)
+        self.last_frame = None
+        self.font = pygame.font.Font(None, 36)
+        self.profile_buttons = []
+        
+        # Load back button image
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        # Load LOAD and DELETE button images
+        self.load_button_img = pygame.image.load("BUTTONS/LOAD.png").convert_alpha()
+        self.load_button_rect = self.load_button_img.get_rect()
+        self.load_button_collision = get_collision_rect(self.load_button_img)
+
+        self.delete_button_img = pygame.image.load("BUTTONS/DELETE.png").convert_alpha()
+        self.delete_button_rect = self.delete_button_img.get_rect()
+        self.delete_button_collision = get_collision_rect(self.delete_button_img)
+
+        # Load background image
+        self.background_img = pygame.image.load("SCENES/SENYASPIC.png").convert()
+
+        self.hovered_button = None
+        self.selected_profile = None  # Track the selected profile
+        self.scroll_offset = 0  # Initialize scroll offset
+        self.dragging = False  # Flag to indicate if dragging is in progress
+        self.drag_start_y = 0  # Starting y position of the drag
+        
+    def enter(self):
+        # Ensure the video starts from the beginning
+        self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+        
+        # Get the first frame immediately to ensure we have something to display
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+        
+        self.load_profiles()
+        if self.sound:
+            self.sound.play()
+        
+    def exit(self):
+        if self.sound:
+            self.sound.stop()
+        
+    def load_profiles(self):
+        """Load existing profiles from the saves directory"""
+        self.profile_buttons = []
+        
+        # Check if saves directory exists
+        if not os.path.exists("saves"):
+            return
+        
+        # Get all JSON files in the saves directory
+        save_files = [f for f in os.listdir("saves") if f.endswith(".json")]
+        
+        # Create a button for each save file
+        y_position = 150
+        for i, file in enumerate(save_files):
+            profile_name = file[:-5]  # Remove the .json extension
+            
+            # Create a rectangle for the profile button
+            button_rect = pygame.Rect(362, y_position + i * 60, 300, 50)
+            self.profile_buttons.append((profile_name, button_rect))
+    
+    def update(self):
+        # If we don't have a frame yet, try to get one
+        if self.last_frame is None:
+            ret, frame = self.game.videos[self.video_key].read()
+            if ret:
+                self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+        
+        # No need to call render here, it will be called by the game loop
+    
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            if self.dragging:
+                # Calculate the difference in y position
+                delta_y = event.pos[1] - self.drag_start_y
+                self.scroll_offset += delta_y
+                self.scroll_offset = max(min(self.scroll_offset, 0), -max(0, (len(self.profile_buttons) - 1) * 60 - 400))  # Limit scrolling
+                self.drag_start_y = event.pos[1]  # Update the starting y position for the next motion event
+            else:
+                # Check profile buttons
+                self.hovered_button = None
+                for _, button_rect in self.profile_buttons:
+                    if button_rect.move(0, self.scroll_offset).collidepoint(event.pos):
+                        if self.hovered_button != button_rect:
+                            pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                        self.hovered_button = button_rect
+                        break
+                
+                # Check back button
+                if self.back_button_collision.collidepoint(event.pos):
+                    if self.hovered_button != self.back_button_collision:
+                        pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                    self.hovered_button = self.back_button_collision
+
+                # Check load button
+                if self.load_button_collision.collidepoint(event.pos):
+                    if self.hovered_button != self.load_button_collision:
+                        pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                    self.hovered_button = self.load_button_collision
+
+                # Check delete button
+                if self.delete_button_collision.collidepoint(event.pos):
+                    if self.hovered_button != self.delete_button_collision:
+                        pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                    self.hovered_button = self.delete_button_collision
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:  # Left mouse button
+                self.dragging = True
+                self.drag_start_y = event.pos[1]
+            
+            # Check profile buttons
+            for profile_name, button_rect in self.profile_buttons:
+                if button_rect.move(0, self.scroll_offset).collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    self.selected_profile = profile_name  # Select the profile
+                    return
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_blgsign")
+
+            # Check load button
+            if self.load_button_collision.collidepoint(event.pos) and self.selected_profile:
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.current_profile = self.selected_profile
+                print(f"Loaded profile: {self.selected_profile}")
+                self.game.change_state("playing_home")
+
+            # Check delete button
+            if self.delete_button_collision.collidepoint(event.pos) and self.selected_profile:
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                os.remove(f"saves/{self.selected_profile}.json")
+                print(f"Deleted profile: {self.selected_profile}")
+                self.selected_profile = None  # Deselect the profile
+                self.load_profiles()  # Reload profiles
+        
+        if event.type == pygame.MOUSEBUTTONUP:
+            if event.button == 1:  # Left mouse button
+                self.dragging = False
+    
+    def render(self):
+        # Draw the background image
+        self.game.screen.blit(self.background_img, (0, 0))
+        
+        if self.last_frame:
+            self.game.screen.blit(self.last_frame, (0, 0))
+        
+        # Create a semi-transparent overlay for better text readability
+        overlay = pygame.Surface((1024, 600), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 128))  # Black with 50% transparency
+        self.game.screen.blit(overlay, (0, 0))
+        
+        # Draw a title for the load game screen
+        title_text = self.font.render("SELECT A PROFILE", True, pygame.Color('white'))
+        title_rect = title_text.get_rect(center=(512, 100))
+        self.game.screen.blit(title_text, title_rect)
+        
+        # Calculate the range of profiles to display based on the scroll offset
+        profile_height = 60
+        max_visible_profiles = 7
+        start_index = max(0, -self.scroll_offset // profile_height)
+        end_index = min(len(self.profile_buttons), start_index + max_visible_profiles)
+        
+        # Draw profile buttons
+        for i in range(start_index, end_index):
+            profile_name, button_rect = self.profile_buttons[i]
+            adjusted_rect = button_rect.move(0, self.scroll_offset)
+            
+            # Draw button background
+            pygame.draw.rect(self.game.screen, (50, 50, 100), adjusted_rect)
+            
+            # Draw button border
+            border_color = (0, 255, 0) if profile_name == self.selected_profile else (255, 255, 255)
+            pygame.draw.rect(self.game.screen, border_color, adjusted_rect, 2)
+            
+            # Draw profile name
+            name_text = self.font.render(profile_name, True, pygame.Color('white'))
+            text_rect = name_text.get_rect(center=adjusted_rect.center)
+            self.game.screen.blit(name_text, text_rect)
+        
+        # Draw back button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+        # Draw load button
+        self.game.screen.blit(self.load_button_img, self.load_button_rect.topleft)
+        if self.hovered_button == self.load_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.load_button_collision, 3)
+
+        # Draw delete button
+        self.game.screen.blit(self.delete_button_img, self.delete_button_rect.topleft)
+        if self.hovered_button == self.delete_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.delete_button_collision, 3)
+        
+        # If no profiles found, display a message
+        if not self.profile_buttons:
+            no_profiles_text = self.font.render("No saved profiles found", True, pygame.Color('white'))
+            no_profiles_rect = no_profiles_text.get_rect(center=(512, 300))
+            self.game.screen.blit(no_profiles_text, no_profiles_rect)
+            
+class HomeState(VideoState):
+    def __init__(self, game, video_key, next_state=None, audio_file=None):
+        super().__init__(game, video_key, next_state, audio_file)
+        
+        # Load button images using consistent approach
+        self.buttons = []
+        
+        button_data = [
+            ("BUTTONS/COSMIC BUTTON.png", "playing_cosmic"),
+            ("BUTTONS/GALAXY BUTTON.png", "playing_galaxy"),
+            ("BUTTONS/STAR BUTTON.png", "playing_star")
+        ]
+        
+        for img_path, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+        
+        # Add back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+
+        self.last_frame = None
+        self.hovered_button = None
+        self.font = pygame.font.Font(None, 24)
+
+    def enter(self):
+        super().enter()
+
+    def exit(self):
+        super().exit()
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+            self.game.screen.blit(self.last_frame, (0, 0))
+            
+            # Draw buttons on top of the video frame with their original positions
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+                
+                # Highlight hovered button
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)  # Cyan highlight
+            # Draw back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+            # Display current profile name
+            if hasattr(self.game, 'current_profile') and self.game.current_profile:
+                profile_text = self.font.render(f"Profile: {self.game.current_profile}", True, pygame.Color('white'))
+                self.game.screen.blit(profile_text, (10, 10))
+        else:
+            # If video ends, loop it
+            self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                hovered = self.back_button_collision
+
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+            
+            self.hovered_button = hovered
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    # Actually change the state now
+                    print(f"Button clicked: {state}")
+                    self.game.change_state(state)
+                    return
+                
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_usertype")
+
+class GalaxyExplorerState(VideoState):
+    def __init__(self, game, video_key, next_state=None, audio_file=None):
+        super().__init__(game, video_key, next_state, audio_file)
+        
+        # Load button images
+        self.buttons = []
+        
+        button_data = [
+            ("BUTTONS/ALPHABETS.png", "playing_alphabets"),
+            ("BUTTONS/NUMBERS.png", "playing_numbers"),
+            ("BUTTONS/PHRASES.png", "playing_phrases")
+        ]
+        
+        for img_path, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+        
+        # Add back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        self.last_frame = None
+        self.hovered_button = None
+
+    def enter(self):
+        super().enter()
+
+    def exit(self):
+        super().exit()
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+            self.game.screen.blit(self.last_frame, (0, 0))
+            
+            # Draw buttons on top of the video frame
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+                
+                # Highlight hovered button
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+            
+            # Draw back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        else:
+            # If video ends, loop it
+            self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            # Check category buttons
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                hovered = self.back_button_collision
+            
+            # Play hover sound if we have a new hovered button
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+            
+            self.hovered_button = hovered
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Check category buttons
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    # Transition to the appropriate state
+                    print(f"Button clicked: {state}")
+                    self.game.change_state(state)
+                    return
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_home")
+
+class GalaxyExplorerAlphabetState(VideoState):
+    def __init__(self, game, video_key, next_state=None, audio_file=None):
+        super().__init__(game, video_key, next_state, audio_file)
+        
+        # Load button images
+        self.buttons = []
+        
+        button_data = [
+            ("BUTTONS/Alphabets/GALPHAA.png", "playing_a"), ("BUTTONS/Alphabets/GALPHAB.png", "playing_b"),
+            ("BUTTONS/Alphabets/GALPHAC.png", "playing_c"), ("BUTTONS/Alphabets/GALPHAD.png", "playing_d"),
+            ("BUTTONS/Alphabets/GALPHAE.png", "playing_e"), ("BUTTONS/Alphabets/GALPHAF.png", "playing_f"),
+            ("BUTTONS/Alphabets/GALPHAG.png", "playing_g"), ("BUTTONS/Alphabets/GALPHAH.png", "playing_h"),
+            ("BUTTONS/Alphabets/GALPHAI.png", "playing_i"), ("BUTTONS/Alphabets/GALPHAJ.png", "playing_j"),
+            ("BUTTONS/Alphabets/GALPHAK.png", "playing_k"), ("BUTTONS/Alphabets/GALPHAL.png", "playing_l"),
+            ("BUTTONS/Alphabets/GALPHAM.png", "playing_m"), ("BUTTONS/Alphabets/GALPHAN.png", "playing_n"),
+            ("BUTTONS/Alphabets/GALPHAO.png", "playing_o"), ("BUTTONS/Alphabets/GALPHAP.png", "playing_p"),
+            ("BUTTONS/Alphabets/GALPHAQ.png", "playing_q"), ("BUTTONS/Alphabets/GALPHAR.png", "playing_r"),
+            ("BUTTONS/Alphabets/GALPHAS.png", "playing_s"), ("BUTTONS/Alphabets/GALPHAT.png", "playing_t"),
+            ("BUTTONS/Alphabets/GALPHAU.png", "playing_u"), ("BUTTONS/Alphabets/GALPHAV.png", "playing_v"),
+            ("BUTTONS/Alphabets/GALPHAW.png", "playing_w"), ("BUTTONS/Alphabets/GALPHAX.png", "playing_x"),
+            ("BUTTONS/Alphabets/GALPHAY.png", "playing_y"), ("BUTTONS/Alphabets/GALPHAZ.png", "playing_z")
+        ]
+        
+        for img_path, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+        
+        # Add back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        self.last_frame = None
+        self.hovered_button = None
+
+    def enter(self):
+        super().enter()
+
+    def exit(self):
+        super().exit()
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+            self.game.screen.blit(self.last_frame, (0, 0))
+            
+            # Draw buttons on top of the video frame
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+                
+                # Highlight hovered button
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+            
+            # Draw back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        else:
+            # If video ends, loop it
+            self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            # Check category buttons
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                hovered = self.back_button_collision
+            
+            # Play hover sound if we have a new hovered button
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+            
+            self.hovered_button = hovered
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Check category buttons
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    # Transition to the appropriate state
+                    print(f"Button clicked: {state}")
+                    self.game.change_state(state)
+                    return
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_galaxy")
+
+class AlphabetDisplayState(State):
+    def __init__(self, game, image_path, expected_letter, webcam_position=(700, 150), webcam_size=(300, 225)):
+        super().__init__(game)
+        self.original_image = pygame.image.load(image_path).convert_alpha()
+
+        # Scale the image to fit within 1024x600 while maintaining aspect ratio
+        self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
+        self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))  # Center the image
+
+        # Back button (Initialize once)
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        # Next button
+        self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
+        self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
+        self.next_button_collision = get_collision_rect(self.next_button_img)
+
+        self.last_frame = None
+        self.hovered_button = None
+
+        # Webcam feed parameters
+        self.webcam_position = (600, 152)
+        self.webcam_size = (350, 263)
+        self.webcam = None  # Initialize webcam as None
+
+        # Load the TFLite model
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        # Mediapipe Hands setup
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        # Label map
+        self.labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
+
+        # Timer for try again message
+        self.start_time = None
+        self.correct = False
+
+        # Expected letter for this state
+        self.expected_letter = expected_letter
+
+    def get_scaled_dimensions(self, image, max_width, max_height):
+        """Returns new dimensions for the image while maintaining aspect ratio"""
+        img_width, img_height = image.get_size()
+        scale_factor = min(max_width / img_width, max_height / img_height)
+        return int(img_width * scale_factor), int(img_height * scale_factor)
+
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.correct = False
+        self.start_time = None
+
+    def exit(self):
+        if self.webcam:
+            self.webcam.release()  # Release the webcam
+            self.webcam = None
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))  # Clear screen
+        self.game.screen.blit(self.image, self.image_rect.topleft)  # Centered display
+
+        # Update webcam feed
+        if self.webcam:
+            ret, webcam_frame = self.webcam.read()
+            if ret:
+                # Flip the webcam frame horizontally to mirror it
+                webcam_frame = cv2.flip(webcam_frame, 1)
+                h, w, _ = webcam_frame.shape
+                roi = webcam_frame[:, w//2:]  # Right side ROI
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                result = self.hands.process(roi_rgb)
+                
+                if result.multi_hand_landmarks:
+                    for hand_landmarks in result.multi_hand_landmarks:
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            landmarks.extend([lm.x, lm.y])  # Use only x and y coordinates
+                        
+                        # Convert landmarks to NumPy array and reshape
+                        input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+                        
+                        # Ensure the input data has the correct shape
+                        if input_data.shape[1] == self.input_details[0]['shape'][1]:
+                            # Perform inference
+                            self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                            self.interpreter.invoke()
+                            output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+                            prediction = np.argmax(output_data)
+                            
+                            # Check if the prediction is correct
+                            if self.labels[prediction] == self.expected_letter:
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                                    self.save_progress()  # Save progress when correct
+                            else:
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                                elif time.time() - self.start_time > 5:
+                                    self.correct = False
+                                    self.start_time = None
+
+                            # Draw landmarks
+                            self.mp_drawing.draw_landmarks(
+                                roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                                self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                            )
+                
+                # Display result
+                if self.correct:
+                    result_text = "Correct"
+                else:
+                    result_text = "Try Again" if self.start_time else ""
+                    self.start_time = None  # Reset the timer if not correct
+
+                result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+
+                # Calculate the x-coordinate to center the text below the webcam
+                result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
+                result_y = self.webcam_position[1] + self.webcam_size[1] + 8
+
+                self.game.screen.blit(result_surface, (result_x, result_y))
+
+                # Convert the webcam frame to a surface and blit it
+                webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+                self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        # Draw back button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+
+        # Draw next button
+        self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
+
+        # Draw hover effect
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        elif self.hovered_button == self.next_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            if self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+            elif self.next_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.next_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.next_button_collision
+            else:
+                self.hovered_button = None
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_alphabets")  # Return to alphabet selection
+            elif self.next_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Find the next letter in sequence
+                if self.game.current_state_name in self.game.alphabet_sequence:
+                    current_index = self.game.alphabet_sequence.index(self.game.current_state_name)
+                    if current_index < len(self.game.alphabet_sequence) - 1:
+                        next_state = self.game.alphabet_sequence[current_index + 1]
+                    else:
+                        next_state = "playing_alphabets"  # Return to alphabet selection if last letter is reached
+                else:
+                    next_state = "playing_alphabets"  # Default fallback
+
+                self.game.change_state(next_state)
+
+    def save_progress(self):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "galaxy_explorer" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"] = []
+                
+                progress_entry = f"Alphabets: {self.expected_letter}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["galaxy_explorer"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"].append(progress_entry)
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for letter: {self.expected_letter} in Galaxy Explorer")
+
+class GalaxyExplorerNumberState(VideoState):
+    def __init__(self, game, video_key, next_state=None, audio_file=None):
+        super().__init__(game, video_key, next_state, audio_file)
+        
+        gnum_path = os.path.join(os.getcwd(), "BUTTONS/Numbers")  # Path for GNUM buttons
+        self.buttons = []
+
+        button_data = [
+            ("GNUM0.png", "playing_0"), ("GNUM1.png", "playing_1"), ("GNUM2.png", "playing_2"),
+            ("GNUM3.png", "playing_3"), ("GNUM4.png", "playing_4"), ("GNUM5.png", "playing_5"),
+            ("GNUM6.png", "playing_6"), ("GNUM7.png", "playing_7"), ("GNUM8.png", "playing_8"),
+            ("GNUM9.png", "playing_9")
+        ]
+
+        for gnum, state in button_data:
+            btn_surface = pygame.image.load(os.path.join(gnum_path, gnum)).convert_alpha()
+            btn_rect = btn_surface.get_rect()
+            collision_rect = get_collision_rect(btn_surface)
+            self.buttons.append((btn_surface, btn_rect, collision_rect, state))  # Store state
+
+        # Add back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+        
+        self.last_frame = None
+        self.hovered_button = None
+
+    def enter(self):
+        super().enter()
+
+    def exit(self):
+        super().exit()
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.game.screen.blit(
+                pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1)), 
+                (0, 0)
+            )
+
+        # Draw buttons
+        for image, rect, collision_rect, _ in self.buttons:
+            self.game.screen.blit(image, rect.topleft)
+            if collision_rect == self.hovered_button:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+
+        # Draw back button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+
+            if self.back_button_collision.collidepoint(event.pos):
+                hovered = self.back_button_collision
+
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+
+            self.hovered_button = hovered
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    self.game.change_state(state)
+                    return
+
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_galaxy")
+
+class NumberDisplayState(State):
+    def __init__(self, game, image_path, expected_number, webcam_position=(700, 150), webcam_size=(300, 225)):
+        super().__init__(game)
+        self.original_image = pygame.image.load(image_path).convert_alpha()
+
+        # Scale the image to fit within 1024x600 while maintaining aspect ratio
+        self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
+        self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))  # Center the image
+
+        # Back button (Initialize once)
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        # Next button
+        self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
+        self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
+        self.next_button_collision = get_collision_rect(self.next_button_img)
+
+        self.last_frame = None
+        self.hovered_button = None
+
+        # Webcam feed parameters
+        self.webcam_position = (600, 152)
+        self.webcam_size = (350, 263)
+        self.webcam = None  # Initialize webcam as None
+
+        # Load the TFLite model
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        # Mediapipe Hands setup
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        # Label map
+        self.labels = [str(i) for i in range(10)]
+
+        # Timer for try again message
+        self.start_time = None
+        self.correct = False
+
+        # Expected number for this state
+        self.expected_number = expected_number
+
+    def get_scaled_dimensions(self, image, max_width, max_height):
+        """Returns new dimensions for the image while maintaining aspect ratio"""
+        img_width, img_height = image.get_size()
+        scale_factor = min(max_width / img_width, max_height / img_height)
+        return int(img_width * scale_factor), int(img_height * scale_factor)
+
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.correct = False
+        self.start_time = None
+
+    def exit(self):
+        if self.webcam:
+            self.webcam.release()  # Release the webcam
+            self.webcam = None
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))  # Clear screen
+        self.game.screen.blit(self.image, self.image_rect.topleft)  # Centered display
+
+        # Update webcam feed
+        if self.webcam:
+            ret, webcam_frame = self.webcam.read()
+            if ret:
+                # Flip the webcam frame horizontally to mirror it
+                webcam_frame = cv2.flip(webcam_frame, 1)
+                h, w, _ = webcam_frame.shape
+                roi = webcam_frame[:, w//2:]  # Right side ROI
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                result = self.hands.process(roi_rgb)
+                
+                if result.multi_hand_landmarks:
+                    for hand_landmarks in result.multi_hand_landmarks:
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            landmarks.extend([lm.x, lm.y, lm.z])
+                        
+                        # Convert landmarks to NumPy array and reshape
+                        input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+                        
+                        # Perform inference
+                        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                        self.interpreter.invoke()
+                        output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+                        prediction = np.argmax(output_data)
+                        
+                        # Check if the prediction is correct
+                        if self.labels[prediction] == str(self.expected_number):
+                            self.correct = True
+                            if self.start_time is None:
+                                self.start_time = time.time()  # Start the timer
+                                self.save_progress()  # Save progress when correct
+                        else:
+                            if self.start_time is None:
+                                self.start_time = time.time()
+                            elif time.time() - self.start_time > 5:
+                                self.correct = False
+                                self.start_time = None
+
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
+                
+                # Display result
+                if self.correct:
+                    result_text = "Correct"
+                else:
+                    result_text = "Try Again" if self.start_time else ""
+                    self.start_time = None  # Reset the timer if not correct
+
+                result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+
+                # Calculate the x-coordinate to center the text below the webcam
+                result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
+                result_y = self.webcam_position[1] + self.webcam_size[1] + 8
+
+                self.game.screen.blit(result_surface, (result_x, result_y))
+
+                # Convert the webcam frame to a surface and blit it
+                webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+                self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        # Draw back button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+
+        # Draw next button
+        self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
+
+        # Draw hover effect
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        elif self.hovered_button == self.next_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            if self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+            elif self.next_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.next_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.next_button_collision
+            else:
+                self.hovered_button = None
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_numbers")  # Return to number selection
+            elif self.next_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Find the next number in sequence
+                if self.game.current_state_name in self.game.number_sequence:
+                    current_index = self.game.number_sequence.index(self.game.current_state_name)
+                    if current_index < len(self.game.number_sequence) - 1:
+                        next_state = self.game.number_sequence[current_index + 1]
+                    else:
+                        next_state = "playing_numbers"  # Return to number selection if last number is reached
+                else:
+                    next_state = "playing_numbers"  # Default fallback
+
+                self.game.change_state(next_state)
+
+    def save_progress(self):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "galaxy_explorer" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"] = []
+                
+                progress_entry = f"Number: {self.expected_number}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["galaxy_explorer"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"].append(progress_entry)
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for number: {self.expected_number} in Galaxy Explorer")
+
+class GalaxyExplorerPhrasesstate(VideoState):
+    def __init__(self, game, video_key, next_state=None, audio_file=None):
+        super().__init__(game, video_key, next_state, audio_file)
+        
+        # Load button images
+        self.buttons = []
+        
+        button_data = [
+            ("BUTTONS/Phrases/THANKYOU.png", "playing_thankyou"), ("BUTTONS/Phrases/HELLO.png", "playing_hello"),
+            ("BUTTONS/Phrases/ILOVEYOU.png", "playing_iloveyou"), ("BUTTONS/Phrases/SORRY.png", "playing_sorry"),                                            
+        ]
+        
+        for img_path, state in button_data:
+            img = pygame.image.load(img_path).convert_alpha()
+            img_rect = img.get_rect()
+            collision_rect = get_collision_rect(img)
+            self.buttons.append((img, img_rect, collision_rect, state))
+        
+        # Add back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+        
+        self.last_frame = None
+        self.hovered_button = None
+
+    def enter(self):
+        super().enter()
+
+    def exit(self):
+        super().exit()
+
+    def update(self):
+        ret, frame = self.game.videos[self.video_key].read()
+        if ret:
+            self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
+            self.game.screen.blit(self.last_frame, (0, 0))
+            
+            # Draw buttons on top of the video frame
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+                
+                # Highlight hovered button
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+            
+            # Draw back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        else:
+            # If video ends, loop it
+            self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            # Check category buttons
+            hovered = None
+            for _, _, collision_rect, _ in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    hovered = collision_rect
+                    break
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                hovered = self.back_button_collision
+            
+            # Play hover sound if we have a new hovered button
+            if hovered and hovered != self.hovered_button:
+                pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+            
+            self.hovered_button = hovered
+        
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            # Check category buttons
+            for _, _, collision_rect, state in self.buttons:
+                if collision_rect.collidepoint(event.pos):
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    # Transition to the appropriate state
+                    print(f"Button clicked: {state}")
+                    self.game.change_state(state)
+                    return
+            
+            # Check back button
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_galaxy")
+
+class PhraseDisplayState(State):
+    def __init__(self, game, image_path, expected_phrase, webcam_position=(700, 150), webcam_size=(300, 225)):
+        super().__init__(game)
+        self.original_image = pygame.image.load(image_path).convert_alpha()
+
+        # Scale the image to fit within 1024x600 while maintaining aspect ratio
+        self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
+        self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))  # Center the image
+
+        # Back button (Initialize once)
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        # Next button
+
+        self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
+        self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
+        self.next_button_collision = get_collision_rect(self.next_button_img)
+
+        self.last_frame = None
+        self.hovered_button = None
+
+        # Webcam feed parameters
+        self.webcam_position = (600, 152)
+        self.webcam_size = (350, 263)
+        self.webcam = None  # Initialize webcam as None
+
+        # Load the TFLite model
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+
+        # Mediapipe Hands setup
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        # Label map
+        self.labels = ["THANKYOU", "HELLO", "ILOVEYOU", "SORRY"]
+
+        # Timer for try again message
+        self.start_time = None
+        self.correct = False
+
+        # Expected phrase for this state
+        self.expected_phrase = expected_phrase
+
+    def get_scaled_dimensions(self, image, max_width, max_height):
+        """Returns new dimensions for the image while maintaining aspect ratio"""
+        img_width, img_height = image.get_size()
+        scale_factor = min(max_width / img_width, max_height / img_height)
+        return int(img_width * scale_factor), int(img_height * scale_factor)
+
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.correct = False
+        self.start_time = None
+
+    def exit(self):
+        if self.webcam:
+            self.webcam.release()  # Release the webcam
+            self.webcam = None
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))  # Clear screen
+        self.game.screen.blit(self.image, self.image_rect.topleft)  # Centered display
+
+        # Update webcam feed
+        if self.webcam:
+            ret, webcam_frame = self.webcam.read()
+            if ret:
+                # Flip the webcam frame horizontally to mirror it
+                webcam_frame = cv2.flip(webcam_frame, 1)
+                h, w, _ = webcam_frame.shape
+                roi = webcam_frame[:, w//2:]  # Right side ROI
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                result = self.hands.process(roi_rgb)
+                
+                if result.multi_hand_landmarks:
+                    for hand_landmarks in result.multi_hand_landmarks:
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            landmarks.extend([lm.x, lm.y, lm.z])  # Use x, y, and z coordinates
+                        
+                        # Convert landmarks to NumPy array and reshape
+                        input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+                        
+                        # Perform inference
+                        self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                        self.interpreter.invoke()
+                        output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+                        prediction = np.argmax(output_data)
+                        
+                        # Check if the prediction is correct
+                        if self.labels[prediction] == self.expected_phrase:
+                            self.correct = True
+                            if self.start_time is None:
+                                self.start_time = time.time()  # Start the timer
+                                self.save_progress()  # Save progress when correct
+                        else:
+                            if self.start_time is None:
+                                self.start_time = time.time()
+                            elif time.time() - self.start_time > 5:
+                                self.correct = False
+                                self.start_time = None
+
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
+                
+                # Display result
+                if self.correct:
+                    result_text = "Correct"
+                else:
+                    result_text = "Try Again" if self.start_time else ""
+                    self.start_time = None  # Reset the timer if not correct
+
+                result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+
+                # Calculate the x-coordinate to center the text below the webcam
+                result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
+                result_y = self.webcam_position[1] + self.webcam_size[1] + 8
+
+                self.game.screen.blit(result_surface, (result_x, result_y))
+
+                # Convert the webcam frame to a surface and blit it
+                webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+                self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        # Draw back button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+
+        # Draw next button
+        self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
+
+        # Draw hover effect
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+        elif self.hovered_button == self.next_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            if self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+            elif self.next_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.next_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.next_button_collision
+            else:
+                self.hovered_button = None
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_phrases")  # Return to phrase selection
+            elif self.next_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Find the next phrase in sequence
+                if self.game.current_state_name in self.game.phrase_sequence:
+                    current_index = self.game.phrase_sequence.index(self.game.current_state_name)
+                    if current_index < len(self.game.phrase_sequence) - 1:
+                        next_state = self.game.phrase_sequence[current_index + 1]
+                    else:
+                        next_state = "playing_phrases"  # Return to phrase selection if last phrase is reached
+                else:
+                    next_state = "playing_phrases"  # Default fallback
+
+                self.game.change_state(next_state)
+
+    def save_progress(self):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "galaxy_explorer" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"] = []
+                
+                progress_entry = f"Phrase: {self.expected_phrase}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["galaxy_explorer"]:
+                    save_data["progress"]["completed_lessons"]["galaxy_explorer"].append(progress_entry)
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for phrase: {self.expected_phrase} in Galaxy Explorer")
+                
+class CosmicCopyState(State):
+    def __init__(self, game):
+        super().__init__(game)
+        self.current_item = None
+        self.expected_value = None
+
+        # Load the TFLite models
+        self.alphabet_model = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
+        self.alphabet_model.allocate_tensors()
+        self.number_model = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
+        self.number_model.allocate_tensors()
+        self.phrase_model = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
+        self.phrase_model.allocate_tensors()
+
+        # Mediapipe Hands setup
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+        # Load the labels
+        self.alphabet_labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
+        self.number_labels = [str(i) for i in range(10)]
+        self.phrase_labels = ["thankyou", "hello", "iloveyou", "sorry"]
+
+        # Back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+        self.hovered_button = None
+        self.webcam = None  # Initialize webcam as None
+
+        # Timer for try again message
+        self.start_time = None
+        self.correct = False
+
+        # Webcam feed parameters
+        self.webcam_position = (600, 152)
+        self.webcam_size = (350, 263)
+
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.randomize_item()
+        self.correct = False
+        self.start_time = None
+
+    def exit(self):
+        if self.webcam:
+            self.webcam.release()  # Release the webcam
+            self.webcam = None
+
+    def randomize_item(self):
+        choice = random.choice(["alphabet", "number", "phrase"])
+        if choice == "alphabet":
+            self.expected_value = random.choice(self.alphabet_labels)
+            self.current_item = pygame.image.load(os.path.join("GAME PROPER", "COSMIC COPY ALPHABET", f"{self.expected_value}.png")).convert_alpha()
+        elif choice == "number":
+            self.expected_value = random.choice(self.number_labels)
+            self.current_item = pygame.image.load(os.path.join("GAME PROPER", "COSMIC COPY NUMBER", f"{self.expected_value}.png")).convert_alpha()
+        else:
+            self.expected_value = random.choice(self.phrase_labels)
+            self.current_item = pygame.image.load(os.path.join("GAME PROPER", "COSMIC COPY PHRASES", f"{self.expected_value.upper()}.png")).convert_alpha()
+
+        self.current_item = pygame.transform.smoothscale(self.current_item, self.get_scaled_dimensions(self.current_item, 1024, 600))
+        self.current_item_rect = self.current_item.get_rect(center=(1024 // 2, 600 // 2))
+
+    def get_scaled_dimensions(self, image, max_width, max_height):
+        """Returns new dimensions for the image while maintaining aspect ratio"""
+        img_width, img_height = image.get_size()
+        scale_factor = min(max_width / img_width, max_height / img_height)
+        return int(img_width * scale_factor), int(img_height * scale_factor)
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))  # Clear screen
+        self.game.screen.blit(self.current_item, self.current_item_rect.topleft)  # Centered display
+
+        # Update webcam feed
+        if self.webcam:
+            ret, webcam_frame = self.webcam.read()
+            if ret:
+                # Flip the webcam frame horizontally to mirror it
+                webcam_frame = cv2.flip(webcam_frame, 1)
+                h, w, _ = webcam_frame.shape
+                roi = webcam_frame[:, w//2:]  # Right side ROI
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                result = self.hands.process(roi_rgb)
+
+                if result.multi_hand_landmarks:
+                    for hand_landmarks in result.multi_hand_landmarks:
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            if self.expected_value in self.alphabet_labels:
+                                landmarks.extend([lm.x, lm.y])  # Use only x and y coordinates for alphabet
+                            else:
+                                landmarks.extend([lm.x, lm.y, lm.z])  # Use x, y, and z coordinates for numbers and phrases
+
+                        # Convert landmarks to NumPy array and reshape
+                        input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+
+                        # Perform inference based on the type of expected value
+                        if self.expected_value in self.alphabet_labels:
+                            self.interpreter = self.alphabet_model
+                        elif self.expected_value in self.number_labels:
+                            self.interpreter = self.number_model
+                        else:
+                            self.interpreter = self.phrase_model
+
+                        self.interpreter.set_tensor(self.interpreter.get_input_details()[0]['index'], input_data)
+                        self.interpreter.invoke()
+                        output_data = self.interpreter.get_tensor(self.interpreter.get_output_details()[0]['index'])
+                        prediction = np.argmax(output_data)
+
+                        # Check if the prediction is correct
+                        if self.expected_value in self.alphabet_labels + self.number_labels:
+                            if (self.expected_value in self.alphabet_labels and prediction < len(self.alphabet_labels) and self.expected_value == self.alphabet_labels[prediction]) or \
+                               (self.expected_value in self.number_labels and prediction < len(self.number_labels) and self.expected_value == self.number_labels[prediction]):
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                                    self.save_progress("alphabet" if self.expected_value in self.alphabet_labels else "number", self.expected_value)
+                            else:
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                                elif time.time() - self.start_time > 5:
+                                    self.correct = False
+                                    self.start_time = None
+                        else:
+                            if prediction < len(self.phrase_labels) and self.expected_value == self.phrase_labels[prediction]:
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                                    self.save_progress("phrase", self.expected_value)
+                            else:
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                                elif time.time() - self.start_time > 5:
+                                    self.correct = False
+                                    self.start_time = None
+
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
+
+                # Display result
+                if self.correct:
+                    result_text = "Correct"
+                    if self.start_time and time.time() - self.start_time > 1:  # Check if 1 seconds have passed
+                        self.randomize_item()  # Proceed to the next item
+                        self.correct = False  # Reset correct status
+                        self.start_time = None  # Reset start time
+                else:
+                    result_text = "Try Again" if self.start_time else ""
+                    self.start_time = None  # Reset the timer if not correct
+
+                result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+
+                # Calculate the x-coordinate to center the text below the webcam
+                result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
+                result_y = self.webcam_position[1] + self.webcam_size[1] + 10  # Adjust the y-coordinate as needed
+
+                self.game.screen.blit(result_surface, (result_x, result_y))
+
+                # Convert the webcam frame to a surface and blit it
+                webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+                self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        # Draw back button
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+
+        # Draw hover effect
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            if self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+            else:
+                self.hovered_button = None
+
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.correct = False  # Reset correct status
+                self.start_time = None  # Reset start time
+                self.game.change_state("playing_home")
+
+    def save_progress(self, item_type, item_value):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "cosmic_copy" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["cosmic_copy"] = []
+
+                if item_type == "alphabet":
+                    progress_entry = f"Alphabets: {item_value}"
+                elif item_type == "number":
+                    progress_entry = f"Numbers: {item_value}"
+                elif item_type == "phrase":
+                    progress_entry = f"Phrase: {item_value}"
+                else:
+                    return  # Invalid item type
+
+                if progress_entry not in save_data["progress"]["completed_lessons"]["cosmic_copy"]:
+                    save_data["progress"]["completed_lessons"]["cosmic_copy"].append(progress_entry)
+                    save_data["progress"]["completed_lessons"]["cosmic_copy"].sort()  # Sort the entries
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for {item_type}: {item_value} in Cosmic Copy")
+
+class StarQuestState(State):
+    def __init__(self, game):
+        super().__init__(game)
+        self.levels = [
+            ("CAT", ["C", "A", "T"]),
+            ("DOG", ["D", "O", "G"]),
+            ("SUN", ["S", "U", "N"]),
+            ("FISH", ["F", "I", "S", "H"]),
+            ("ELEPHANT", ["E", "L", "E", "P", "H", "A", "N", "T"])
+        ]
+        self.current_level = 0
+        self.current_step = 0
+        self.correct = False
+        self.start_time = None
+        self.load_images()
+        self.load_model()
+        self.setup_mediapipe()
+        self.webcam = None  # Initialize webcam as None
+        self.webcam_position = (600, 152)
+        self.webcam_size = (350, 263)
+        self.hovered_button = None
+
+        # Back button
+        self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
+        self.back_button_rect = self.back_button_img.get_rect()
+        self.back_button_collision = get_collision_rect(self.back_button_img)
+
+    def load_images(self):
+        self.images = {}
+        for level, _ in self.levels:
+            for i in range(len(level) + 1):
+                img_path = os.path.join("GAME PROPER", "STAR QUEST", f"{level}_{i}.png")
+                self.images[f"{level}_{i}"] = pygame.image.load(img_path).convert_alpha()
+
+    def load_model(self):
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
+        self.interpreter.allocate_tensors()
+        self.input_details = self.interpreter.get_input_details()
+        self.output_details = self.interpreter.get_output_details()
+        self.labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
+
+    def setup_mediapipe(self):
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+        self.mp_drawing = mp.solutions.drawing_utils
+
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.current_level = 0
+        self.current_step = 0
+        self.correct = False
+        self.start_time = None
+
+    def exit(self):
+        if self.webcam:
+            self.webcam.release()  # Release the webcam
+            self.webcam = None
+
+    def update(self):
+        self.game.screen.fill((0, 0, 0))
+        level, steps = self.levels[self.current_level]
+        img_key = f"{level}_{self.current_step}"
+        self.game.screen.blit(self.images[img_key], (0, 0))
+
+        if self.webcam:
+            ret, webcam_frame = self.webcam.read()
+            if ret:
+                webcam_frame = cv2.flip(webcam_frame, 1)
+                h, w, _ = webcam_frame.shape
+                roi = webcam_frame[:, w//2:]
+                roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                result = self.hands.process(roi_rgb)
+
+                if result.multi_hand_landmarks:
+                    for hand_landmarks in result.multi_hand_landmarks:
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            landmarks.extend([lm.x, lm.y])
+                        input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
+                        if input_data.shape[1] == self.input_details[0]['shape'][1]:
+                            self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
+                            self.interpreter.invoke()
+                            output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
+                            prediction = np.argmax(output_data)
+                            if self.labels[prediction] == steps[self.current_step]:
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                            else:
+                                if self.start_time is None:
+                                    self.start_time = time.time()
+                                elif time.time() - self.start_time > 5:
+                                    self.correct = False
+                                    self.start_time = None
+                            self.mp_drawing.draw_landmarks(
+                                roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                                self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                            )
+                if self.correct:
+                    result_text = "Correct"
+                    if self.start_time and time.time() - self.start_time > 1:
+                        self.current_step += 1
+                        self.correct = False
+                        self.start_time = None
+                        if self.current_step >= len(steps):
+                            self.current_step = len(steps)
+                            self.celebrate()
+                            self.save_progress(level)  # Save progress when the word is completed
+                            self.current_level += 1
+                            if self.current_level >= len(self.levels):
+                                self.current_level = 0
+                            self.current_step = 0
+                else:
+                    result_text = "Try Again" if self.start_time else ""
+                    self.start_time = None
+                result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
+                result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
+                result_y = self.webcam_position[1] + self.webcam_size[1] + 8
+                self.game.screen.blit(result_surface, (result_x, result_y))
+                webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
+                self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+        if self.hovered_button == self.back_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEMOTION:
+            if self.back_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.back_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.back_button_collision
+            else:
+                self.hovered_button = None
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.back_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                self.game.change_state("playing_home")
+
+    def celebrate(self):
+        # Add celebration logic here (e.g., play a sound, show an animation, etc.)
+        pass
+
+    def save_progress(self, word):
+        """Save the progress of the current profile"""
+        if self.game.current_profile:
+            save_path = f"saves/{self.game.current_profile}.json"
+            if os.path.exists(save_path):
+                with open(save_path, "r") as f:
+                    save_data = json.load(f)
+                
+                # Ensure completed_lessons is a dictionary
+                if not isinstance(save_data["progress"].get("completed_lessons"), dict):
+                    save_data["progress"]["completed_lessons"] = {}
+                
+                if "star_quest" not in save_data["progress"]["completed_lessons"]:
+                    save_data["progress"]["completed_lessons"]["star_quest"] = []
+
+                progress_entry = f"Fingerspelling: {word}"
+                if progress_entry not in save_data["progress"]["completed_lessons"]["star_quest"]:
+                    save_data["progress"]["completed_lessons"]["star_quest"].append(progress_entry)
+                    save_data["progress"]["completed_lessons"]["star_quest"].sort()  # Sort the entries
+                
+                with open(save_path, "w") as f:
+                    json.dump(save_data, f, indent=4)
+                
+                print(f"Progress saved for word: {word} in Star Quest")
+                    
+class LoadingState(State):
+    def __init__(self, game):
+        super().__init__(game)
+        self.font = pygame.font.Font(None, 36)
+        self.loading_complete = False
+        self.loading_progress = 0  # Progress of the loading bar
+
+    def enter(self):
+        # Start loading resources in a separate thread or asynchronously
+        self.loading_complete = False
+        self.loading_progress = 0
+        threading.Thread(target=self.load_resources).start()
+
+    def load_resources(self):
+        # Simulate loading resources with a delay
+        # Here you can load your TensorFlow Lite model
+        self.load_model()
+        self.loading_complete = True
+
+    def load_model(self):
+        # Simulate loading TensorFlow Lite model
+        for i in range(100):
+            time.sleep(0.03)  # Simulate time taken to load model
+            self.loading_progress = i + 1
+
+    def handle_event(self, event):
+        if self.loading_complete:
+            self.game.change_state("welcome")
+
+    def update(self):
+        pass
+
+    def render(self):
+        self.game.screen.fill((0, 0, 0))
+        loading_text = self.font.render("Loading...", True, pygame.Color('white'))
+        self.game.screen.blit(loading_text, (self.game.screen.get_width() // 2 - loading_text.get_width() // 2,
+                                             self.game.screen.get_height() // 2 - loading_text.get_height() // 2 - 50))
+
+        # Draw the loading bar
+        bar_width = 400
+        bar_height = 30
+        bar_x = self.game.screen.get_width() // 2 - bar_width // 2
+        bar_y = self.game.screen.get_height() // 2 - bar_height // 2 + 50
+        pygame.draw.rect(self.game.screen, pygame.Color('white'), (bar_x, bar_y, bar_width, bar_height), 2)
+        pygame.draw.rect(self.game.screen, pygame.Color('green'), (bar_x, bar_y, bar_width * (self.loading_progress / 100), bar_height))
+
+
+# Function to check internet connectivity
+def is_connected():
+    try:
+        # Check connectivity by connecting to Google's DNS
+        socket.create_connection(("8.8.8.8", 53), timeout=5)
+        return True
+    except OSError:
+        return False
+
+# Function to send email
+def send_email(profile_name, completed_lessons):
+    sender_email = "senyasapp@gmail.com"  # Replace with your Gmail
+    sender_password = "pvxf ydsn rzxl xbby"  # Replace with your Gmail password
+
+    # Create email content
+    subject = "Completed Lessons"
+    body = "Here are your completed lessons:\n\n"
+    for lesson_category, lessons in completed_lessons.items():
+        body += f"{lesson_category.upper()}:\n"
+        for lesson in lessons:
+            body += f"{lesson}\n"
+        body += "\n"
+
+    # Create email message
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = profile_name
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+
+    # Send email
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, profile_name, msg.as_string())
+        print("Email sent successfully!")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+
+# Function to show the loading screen
+def show_loading_screen(screen, progress):
+    screen.fill((0, 0, 0))
+    font = pygame.font.Font(None, 50)
+    text = font.render("Loading", True, (255, 255, 255))
+    screen.blit(text, (screen.get_width() // 2 - text.get_width() // 2, screen.get_height() // 2 - text.get_height() // 2))
+    
+    # Draw loading bar
+    bar_width = 400
+    bar_height = 20
+    bar_x = (screen.get_width() - bar_width) // 2
+    bar_y = screen.get_height() // 2 + 40
+    pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))  # Background bar
+    pygame.draw.rect(screen, (0, 255, 0), (bar_x, bar_y, int(bar_width * (progress / 100)), bar_height))  # Green progress
+    
+    pygame.display.flip()
+    pygame.event.pump()  # Prevent freezing
+
+# Function to load assets
+def load_assets(screen):
+    total_assets = len(os.listdir("BUTTONS")) + len(os.listdir("AUDIO")) + 15  # Approximate total
+    loaded_assets = 0
+    
+    images = {}
+    for file in os.listdir("BUTTONS"):
+        if file.endswith(".png"):
+            images[file] = pygame.image.load(f"BUTTONS/{file}").convert_alpha()
+            loaded_assets += 1
+            show_loading_screen(screen, loaded_assets * 100 // total_assets)
+            pygame.time.delay(50)
+    
+    sounds = {}
+    for file in os.listdir("AUDIO"):
+        if file.endswith(".mp3"):
+            sounds[file] = pygame.mixer.Sound(f"AUDIO/{file}")
+            loaded_assets += 1
+            show_loading_screen(screen, loaded_assets * 100 // total_assets)
+            pygame.time.delay(50)
+    
+    videos = {}
+    video_keys = ["welcome", "intro", "usertype", "llanding", "glanding", "lgsign", "ggsign", "lplanet", "gplanet", "home", "blgsign", "gexplorer", "galpha", "gnum", "gphrases"]
+    for key in video_keys:
+        videos[key] = cv2.VideoCapture(f"SCENES/{key.upper()}.mp4")
+        loaded_assets += 1
+        show_loading_screen(screen, loaded_assets * 100 // total_assets)
+        pygame.time.delay(50)
+    
+    return images, sounds, videos
+
+class Game:
+    def __init__(self):
+        pygame.init()
+        pygame.mixer.init()
+        self.screen = pygame.display.set_mode((1024, 600))
+        pygame.display.set_caption("SENYAS")
+        
+        # Initialize the current profile
+        self.current_profile = None
+        
+        self.current_state_name = "welcome"  # Initialize with the starting state
+        self.current_state_data = None  # Add this to store state data
+
+        # Initialize font
+        self.font = pygame.font.Font(None, 36)
+        
+        # Show loading screen while loading assets
+        show_loading_screen(self.screen, 0)
+        self.images, self.sounds, self.videos = load_assets(self.screen)
+        
+        self.states = {
+            "welcome": WelcomeState(self, "welcome", [("BUTTONS/LAUNCH.png", None, "playing_welcome")], "AUDIO/LAUNCH SOUND.mp3"),
+            "playing_welcome": VideoState(self, "welcome", "playing_intro"),
+            "playing_intro": VideoState(self, "intro", "playing_usertype", "AUDIO/INTRO.mp3"),  
+            "playing_usertype": UserTypeState(self, "usertype", [("BUTTONS/LEARNER.png", None, "playing_learner_planet"), ("BUTTONS/GUARDIAN.png", None, "playing_guardian_planet")], "AUDIO/USERTYPE.mp3"),  
+            "load_game": LoadGameState(self, "blgsign"),
+            "playing_learner_planet": VideoState(self, "lplanet", "playing_learner_landing"),
+            "playing_learner_landing": VideoState(self, "llanding", "playing_blgsign", "AUDIO/LLANDING.mp3"),  
+            "playing_blgsign": BLGSignState(self, "blgsign", [("BUTTONS/NEW GAME.png", None, "playing_lgsign"), ("BUTTONS/LOAD GAME.png", None, "load_game")]),
+            "playing_lgsign": VideoWithSignInState(self, "lgsign", "playing_home"),
+            "playing_guardian_planet": VideoState(self, "gplanet", "playing_guardian_landing"),
+            "playing_guardian_landing": VideoState(self, "glanding", "playing_home", "AUDIO/GLANDING.mp3"),  
+            "playing_home": HomeState(self, "home", None, "AUDIO/HOME.mp3"),
+            "playing_galaxy": GalaxyExplorerState(self, "gexplorer"),
+            "playing_alphabets": GalaxyExplorerAlphabetState(self, "galpha"),
+            "playing_numbers": GalaxyExplorerNumberState(self, "gnum"),
+            "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases"),
+            "on_screen_keyboard": OnScreenKeyboardState(self),  # Add this line
+            "playing_star": StarQuestState(self)  # Add the StarQuestState here
+        }
+
+        # Add phrase states dynamically
+        self.phrase_sequence = []
+
+        phrases = ["HELLO", "THANKYOU", "ILOVEYOU", "SORRY"]
+        for phrase in phrases:
+            state_name = f"playing_{phrase.lower()}"
+            image_path = os.path.join("GAME PROPER", "GEXPLORER PHRASES", f"{phrase}.png")
+            self.states[state_name] = PhraseDisplayState(self, image_path, phrase.upper(), None)
+            self.phrase_sequence.append(state_name)  # Store order dynamically
+
+        # Add number states dynamically
+        for i in range(10):
+            state_name = f"playing_{i}"
+            image_path = os.path.join("GAME PROPER", "GEXPLORER NUMBER", f"{i}.png")
+            self.states[state_name] = NumberDisplayState(self, image_path, expected_number=i)
+        
+        # Define number sequence (0 → 1 → 2 → ... → 9)
+        self.number_sequence = [f"playing_{i}" for i in range(10)]
+
+        # Define alphabet sequence (A → B → C → ... → Z)
+        self.alphabet_sequence = [f"playing_{letter.lower()}" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+
+        # Add alphabet states dynamically
+        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+            state_name = f"playing_{letter.lower()}"
+            image_path = os.path.join("GAME PROPER", "GEXPLORER ALPHABET", f"{letter}.png")
+            self.states[state_name] = AlphabetDisplayState(self, image_path, expected_letter=letter)
+
+        self.states["playing_cosmic"] = CosmicCopyState(self)
+        self.current_state = self.states["welcome"]  # Start at welcome screen after loading
+        self.current_state.enter()
+        self.clock = pygame.time.Clock()
+    
+    def change_state(self, new_state, data=None):
+        self.current_state.exit()
+        self.current_state = self.states[new_state]
+        self.current_state_name = new_state  # Track the new state
+        self.current_state_data = data  # Store the data
+        self.current_state.enter()
+
+    def run(self):  # Ensure this method is indented properly to be part of the Game class
+        while True:
+            self.screen.fill((0, 0, 0))
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    # Load user data from JSON file
+                    if self.current_profile:
+                        json_file_path = f"saves/{self.current_profile}.json"
+                        try:
+                            with open(json_file_path, 'r') as file:
+                                user_data = json.load(file)
+                            profile_name = user_data.get("name")
+                            completed_lessons = user_data.get("progress", {}).get("completed_lessons", {})
+
+                            # Check internet connection and send email
+                            if profile_name and is_connected():
+                                send_email(profile_name, completed_lessons)
+                            else:
+                                print("No internet connection or email not found. Email not sent.")
+                        except Exception as e:
+                            print(f"Error reading user data: {e}")
+
+                    pygame.quit()
+                    sys.exit()
+                self.current_state.handle_event(event)
+            self.current_state.update()
+            self.current_state.render()
+            pygame.display.flip()
+            self.clock.tick(30)
+
+# Ensure the `run` method is properly indented to be part of the `Game` class
+if __name__ == "__main__":
+    Game().run()
