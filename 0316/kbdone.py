@@ -1136,12 +1136,8 @@ class AlphabetDisplayState(State):
 
         # Next button
         self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
-        self.next_button_rect = self.next_button_img.get_rect(topright=(1014, 10))  # Position at top right
+        self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
         self.next_button_collision = get_collision_rect(self.next_button_img)
-        self.next_button_collision.height = 55
-        self.next_button_collision.width = 162
-        self.next_button_collision.x = 816 
-        self.next_button_collision.y = 42
 
         self.last_frame = None
         self.hovered_button = None
@@ -1434,12 +1430,8 @@ class NumberDisplayState(State):
 
         # Next button
         self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
-        self.next_button_rect = self.next_button_img.get_rect(topright=(1014, 10))  # Position at top right
+        self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
         self.next_button_collision = get_collision_rect(self.next_button_img)
-        self.next_button_collision.height = 55
-        self.next_button_collision.width = 162
-        self.next_button_collision.x = 816 
-        self.next_button_collision.y = 42
 
         self.last_frame = None
         self.hovered_button = None
@@ -1738,13 +1730,10 @@ class PhraseDisplayState(State):
         self.back_button_collision.y = 35
 
         # Next button
+
         self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
-        self.next_button_rect = self.next_button_img.get_rect(topright=(1014, 10))  # Position at top right
+        self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
         self.next_button_collision = get_collision_rect(self.next_button_img)
-        self.next_button_collision.height = 55
-        self.next_button_collision.width = 162
-        self.next_button_collision.x = 816 
-        self.next_button_collision.y = 42
 
         self.last_frame = None
         self.hovered_button = None
