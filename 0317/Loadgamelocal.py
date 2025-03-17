@@ -782,10 +782,10 @@ class LoadGameState(State):
         if event.type == pygame.MOUSEMOTION:
             if self.data_dragging:
                 delta_y = event.pos[1] - self.data_drag_start_y
-                self.data_scroll_offset += delta_y
-                self.data_scroll_offset = max(min(self.data_scroll_offset, 0), -max(0, self.y_offset - self.data_panel.y - 310))
+                self.data_scroll_offset -= delta_y
+                self.data_scroll_offset = max(min(self.data_scroll_offset, 0), -max(0, self.y_offset - self.data_panel.y - 50)) #310
                 self.data_drag_start_y = event.pos[1]
-    
+
     def render(self):
         # Draw the background image
         self.game.screen.blit(self.background_img, (0, 0))
