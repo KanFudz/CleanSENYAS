@@ -95,9 +95,9 @@ class OnScreenKeyboardState(State):
         self.keyboard_keys = [
             "1234567890",
             "QWERTYUIOP",
-            "@#ASDFGHJKL()",
+            "ASDFGHJKL",
             "↑ZXCVBNM←",
-            ", ."
+            "@ ."
         ]
 
         self.key_width = 80
