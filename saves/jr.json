@@ -24,15 +24,32 @@
                 "Phrase: HELLO"
             ],
             "cosmic_copy": [
+                "Alphabets: D",
+                "Alphabets: E",
                 "Alphabets: G",
                 "Alphabets: H",
+                "Alphabets: I",
+                "Alphabets: L",
+                "Alphabets: N",
                 "Alphabets: R",
                 "Alphabets: U",
                 "Alphabets: Y",
+                "Numbers: 1",
                 "Numbers: 2",
+                "Numbers: 5",
+                "Numbers: 6",
                 "Numbers: 7",
                 "Numbers: 8",
+                "Phrase: hello",
+                "Phrase: iloveyou",
                 "Phrase: thankyou"
+            ],
+            "star_quest": [
+                "Fingerspelling: CAT",
+                "Fingerspelling: DOG",
+                "Fingerspelling: ELEPHANT",
+                "Fingerspelling: FISH",
+                "Fingerspelling: SUN"
             ]
         }
     }
