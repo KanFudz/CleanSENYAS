@@ -1379,24 +1379,20 @@ class AlphabetDisplayState(State):
                             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                             prediction = np.argmax(output_data)
                             
-                            # Check if the prediction is correct
-                            if self.labels[prediction] == self.expected_letter:
-                                self.correct = True
-                                if self.start_time is None:
-                                    self.start_time = time.time()  # Start the timer
-                                    self.save_progress()  # Save progress when correct
+                            confidence = output_data[0][prediction]
+                            if confidence > 0.8:  # Adjust the threshold as needed
+                                if self.labels[prediction] == self.expected_letter:
+                                    self.correct = True
+                                    if self.start_time is None:
+                                        self.start_time = time.time()  # Start the timer
+                                        self.save_progress()  # Save progress when correct
 
-                                    # Trigger confetti effect when correct sign is made
-                                    if not self.confetti_triggered:
-                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
-                                        self.confetti_triggered = True
+                                        # Trigger confetti effect when correct sign is made
+                                        if not self.confetti_triggered:
+                                            self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                            self.confetti_triggered = True
                             else:
-                                if self.start_time is None:
-                                    self.start_time = time.time()
-                                elif time.time() - self.start_time > 5:
-                                    self.correct = False
-                                    self.start_time = None
-                                    self.confetti_triggered = False  # Reset confetti trigger
+                                self.correct = False
 
 
                             # Draw landmarks
@@ -1693,24 +1689,21 @@ class NumberDisplayState(State):
                         output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                         prediction = np.argmax(output_data)
                         
-                        # Check if the prediction is correct
-                        if self.labels[prediction] == str(self.expected_number):
-                            self.correct = True
-                            if self.start_time is None:
-                                self.start_time = time.time()  # Start the timer
-                                self.save_progress()  # Save progress when correct
+                        confidence = output_data[0][prediction]
+                        if confidence > 0.8:  # Adjust the threshold as needed
+                            if self.labels[prediction] == str(self.expected_number):
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                                    self.save_progress()  # Save progress when correct
 
-                                # Trigger confetti effect when correct sign is made
-                                if not self.confetti_triggered:
-                                    self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
-                                    self.confetti_triggered = True
+                                    # Trigger confetti effect when correct sign is made
+                                    if not self.confetti_triggered:
+                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                        self.confetti_triggered = True
                         else:
-                            if self.start_time is None:
-                                self.start_time = time.time()
-                            elif time.time() - self.start_time > 5:
-                                self.correct = False
-                                self.start_time = None
-                                self.confetti_triggered = False  # Reset confetti trigger
+                            self.correct = False
+
 
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(
