@@ -2,6 +2,36 @@
     "name": "asd",
     "created at": "03/19/2025",
     "progress": {
-        "completed lessons": []
+        "completed lessons": [],
+        "completed_lessons": {
+            "galaxy_explorer": [
+                "Alphabets: A",
+                "Alphabets: B",
+                "Alphabets: C",
+                "Alphabets: D",
+                "Alphabets: E",
+                "Alphabets: F",
+                "Alphabets: G",
+                "Alphabets: H",
+                "Alphabets: I",
+                "Alphabets: J",
+                "Alphabets: K",
+                "Alphabets: L",
+                "Alphabets: M",
+                "Alphabets: N",
+                "Alphabets: O",
+                "Alphabets: P",
+                "Alphabets: Q",
+                "Alphabets: R",
+                "Alphabets: S",
+                "Alphabets: T",
+                "Alphabets: U",
+                "Alphabets: V",
+                "Alphabets: W",
+                "Alphabets: X",
+                "Alphabets: Y",
+                "Alphabets: Z"
+            ]
+        }
     }
 }
