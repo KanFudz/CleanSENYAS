@@ -1379,8 +1379,9 @@ class AlphabetDisplayState(State):
                             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                             prediction = np.argmax(output_data)
                             
+                            # Adjust confidence threshold to 0.99
                             confidence = output_data[0][prediction]
-                            if confidence > 0.8:  # Adjust the threshold as needed
+                            if confidence >= 0.99:  # Updated threshold
                                 if self.labels[prediction] == self.expected_letter:
                                     self.correct = True
                                     if self.start_time is None:
@@ -1393,7 +1394,6 @@ class AlphabetDisplayState(State):
                                             self.confetti_triggered = True
                             else:
                                 self.correct = False
-
 
                             # Draw landmarks
                             self.mp_drawing.draw_landmarks(
@@ -1617,7 +1617,7 @@ class NumberDisplayState(State):
         self.webcam = None  # Initialize webcam as None
 
         # Load the TFLite model
-        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_number_classifier_v2.tflite")
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
@@ -1672,17 +1672,11 @@ class NumberDisplayState(State):
                     for hand_landmarks in result.multi_hand_landmarks:
                         landmarks = []
                         for lm in hand_landmarks.landmark:
-                            # Include x, y, and z coordinates
                             landmarks.extend([lm.x, lm.y, lm.z])
-
+                        
                         # Convert landmarks to NumPy array and reshape
                         input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
-
-                        # Check if the input data matches the expected shape
-                        if input_data.shape[1] != self.input_details[0]['shape'][1]:
-                            print(f"Skipping inference due to dimension mismatch: got {input_data.shape[1]}, expected {self.input_details[0]['shape'][1]}")
-                            continue  # Skip this iteration if dimensions don't match
-
+                        
                         # Perform inference
                         self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
                         self.interpreter.invoke()
@@ -1704,7 +1698,6 @@ class NumberDisplayState(State):
                                         self.confetti_triggered = True
                         else:
                             self.correct = False
-
 
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(
@@ -2136,7 +2129,7 @@ class CosmicCopyState(State):
         # Load the TFLite models
         self.alphabet_model = tflite.Interpreter(model_path="MODEL/asl_mlp_model_v2.tflite")
         self.alphabet_model.allocate_tensors()
-        self.number_model = tflite.Interpreter(model_path="MODEL/asl_number_classifier_v2.tflite")
+        self.number_model = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
         self.number_model.allocate_tensors()
         self.phrase_model = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
         self.phrase_model.allocate_tensors()
