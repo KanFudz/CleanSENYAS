@@ -1427,7 +1427,7 @@ class CosmicCopyState(State):
         # Load the labels
         self.alphabet_labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
         self.number_labels = [str(i) for i in range(10)]
-        self.phrase_labels = ["goodbye", "hello", "iloveyou", "no", "please", "sorry", "thankyou", "yes"]
+        self.phrase_labels = ["thankyou", "hello", "iloveyou", "no", "please", "sorry", "goodbye", "yes"]
 
         # Back button
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
