@@ -2293,7 +2293,7 @@ class CosmicCopyState(State):
                 # Display result
                 if self.correct:
                     result_text = "Correct"
-                    if self.start_time and time.time() - self.start_time > 1:  # Check if 1 seconds have passed
+                    if self.start_time and time.time() - self.start_time > 2:  # Check if 2 seconds have passed
                         self.randomize_item()  # Proceed to the next item
                         self.correct = False  # Reset correct status
                         self.start_time = None  # Reset start time
