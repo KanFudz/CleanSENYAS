@@ -1547,17 +1547,17 @@ class GalaxyExplorerNumberState(VideoState):
                 (0, 0)
             )
 
-        # Draw buttons
-        for image, rect, collision_rect, _ in self.buttons:
-            self.game.screen.blit(image, rect.topleft)
-            if collision_rect == self.hovered_button:
-                pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+            # Draw buttons
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
 
-        # Draw back button
-        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
-        if self.hovered_button == self.back_button_collision:
-            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
-
+            # Draw back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+                
         else:
             # If video ends, loop it
             self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
