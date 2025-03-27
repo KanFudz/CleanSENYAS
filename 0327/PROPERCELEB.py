@@ -2460,11 +2460,15 @@ class StarQuestState(State):
     def update(self):
         self.game.screen.fill((0, 0, 0))
         level, steps = self.levels[self.current_level]
-        
+
         # Check if we're in a word transition delay
         if self.word_transition_time and time.time() - self.word_transition_time < 5:
-            # Display the last image of the previous word during the transition
-            img_key = f"{level}_{len(steps)}"
+            # Determine the previous level (the completed word)
+            prev_level_index = self.current_level - 1 if self.current_level > 0 else len(self.levels) - 1
+            prev_level, prev_steps = self.levels[prev_level_index]
+            
+            # Display the last (fully green) image of the previous word during the transition
+            img_key = f"{prev_level}_{len(prev_steps)}"
             self.game.screen.blit(self.images[img_key], (0, 0))
             
             # Continue drawing confetti during transition
