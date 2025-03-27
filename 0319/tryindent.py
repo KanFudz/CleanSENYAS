@@ -1933,7 +1933,7 @@ class PhraseDisplayState(State):
         self.mp_drawing = mp.solutions.drawing_utils
 
         # Label map
-        self.labels = ["THANKYOU", "HELLO", "ILOVEYOU", "SORRY"]
+        self.labels = ["thankyou", "hello", "iloveoyu", "sorry"]
 
         # Timer for try again message
         self.start_time = None

@@ -2025,7 +2025,7 @@ class PhraseDisplayState(State):
         self.mp_drawing = mp.solutions.drawing_utils
 
         # Label map
-        self.labels = ["thankyou", "hello", "iloveyou", "sorry"]
+        self.labels = ["THANKYOU", "HELLO", "ILOVEYOU", "SORRY"]
 
         # Timer for try again message
         self.start_time = None
@@ -2083,9 +2083,7 @@ class PhraseDisplayState(State):
                             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                             prediction = np.argmax(output_data)
                         
-                        # Adjust confidence threshold to 0.99
-                        confidence = output_data[0][prediction]
-                        if confidence >= 0.99 and self.labels[prediction] == self.expected_phrase:
+                        if self.labels[prediction] == self.expected_phrase:
                             self.correct = True
                             if self.start_time is None:
                                 self.start_time = time.time()  # Start the timer
@@ -2098,7 +2096,12 @@ class PhraseDisplayState(State):
                                     self.confetti_sound.play()  # Play confetti sound when triggered
 
                         else:
-                            self.correct = False
+                            if self.start_time is None:
+                                self.start_time = time.time()
+                            elif time.time() - self.start_time > 5:
+                                self.correct = False
+                                self.start_time = None
+                                self.confetti_triggered = False  # Reset confetti trigger
 
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(

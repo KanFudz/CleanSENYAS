@@ -10,6 +10,11 @@
                 "Phrase: hello",
                 "Phrase: iloveyou",
                 "Phrase: thankyou"
+            ],
+            "galaxy_explorer": [
+                "Phrase: HELLO",
+                "Phrase: THANKYOU",
+                "Phrase: ILOVEYOU"
             ]
         }
     }
