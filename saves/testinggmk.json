@@ -2,6 +2,18 @@
     "name": "testinggmk",
     "created at": "03/26/2025",
     "progress": {
-        "completed lessons": []
+        "completed lessons": [],
+        "completed_lessons": {
+            "cosmic_copy": [
+                "Alphabets: Q",
+                "Numbers: 4",
+                "Numbers: 6"
+            ],
+            "star_quest": [
+                "Fingerspelling: CAT",
+                "Fingerspelling: DOG",
+                "Fingerspelling: SUN"
+            ]
+        }
     }
 }

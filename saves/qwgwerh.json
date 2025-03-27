@@ -2,6 +2,15 @@
     "name": "qwgwerh",
     "created at": "03/17/2025",
     "progress": {
-        "completed lessons": []
+        "completed lessons": [],
+        "completed_lessons": {
+            "cosmic_copy": [
+                "Alphabets: O",
+                "Alphabets: Y",
+                "Phrase: hello",
+                "Phrase: iloveyou",
+                "Phrase: thankyou"
+            ]
+        }
     }
 }

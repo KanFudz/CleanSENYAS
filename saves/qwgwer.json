@@ -2,6 +2,20 @@
     "name": "qwgwer",
     "created at": "03/17/2025",
     "progress": {
-        "completed lessons": []
+        "completed lessons": [],
+        "completed_lessons": {
+            "galaxy_explorer": [
+                "Alphabets: A",
+                "Number: 0",
+                "Number: 1"
+            ],
+            "cosmic_copy": [
+                "Alphabets: U",
+                "Alphabets: W",
+                "Numbers: 4",
+                "Phrase: hello",
+                "Phrase: iloveyou"
+            ]
+        }
     }
 }

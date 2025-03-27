@@ -1964,7 +1964,7 @@ class PhraseDisplayState(State):
         self.mp_drawing = mp.solutions.drawing_utils
 
         # Label map
-        self.labels = ["THANKYOU", "HELLO", "ILOVEYOU", "SORRY"]
+        self.labels = ["thankyou", "hello", "iloveyou", "sorry"]
 
         # Timer for try again message
         self.start_time = None
@@ -2005,8 +2005,7 @@ class PhraseDisplayState(State):
                 roi = webcam_frame[:, w//2:]  # Right side ROI
                 roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
                 result = self.hands.process(roi_rgb)
-
-                # Check if any hand landmarks are detected
+                
                 if result.multi_hand_landmarks:
                     for hand_landmarks in result.multi_hand_landmarks:
                         landmarks = []
@@ -2016,45 +2015,47 @@ class PhraseDisplayState(State):
                         # Convert landmarks to NumPy array and reshape
                         input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
                         
-                        # Ensure the input data has the correct shape
+                        # Perform inference
                         if input_data.shape[1] == self.input_details[0]['shape'][1]:
-                            # Perform inference
                             self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
                             self.interpreter.invoke()
                             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                             prediction = np.argmax(output_data)
-                            
-                            # Adjust confidence threshold to 0.99
-                            confidence = output_data[0][prediction]
-                            if confidence >= 0.99 and self.labels[prediction] == self.expected_phrase:
-                                self.correct = True
-                                if self.start_time is None:
-                                    self.start_time = time.time()  # Start the timer
-                                    self.save_progress()  # Save progress when correct
+                        
+                        # Adjust confidence threshold to 0.99
+                        confidence = output_data[0][prediction]
+                        if confidence >= 0.99 and self.labels[prediction] == self.expected_phrase:
+                            self.correct = True
+                            if self.start_time is None:
+                                self.start_time = time.time()  # Start the timer
+                                self.save_progress()  # Save progress when correct
 
-                                    # Trigger confetti effect when correct sign is made
-                                    if not self.confetti_triggered:
-                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
-                                        self.confetti_triggered = True
-                                        self.confetti_sound.play()  # Play confetti sound when triggered
-                            else:
-                                self.correct = False
+                                # Trigger confetti effect when correct sign is made
+                                if not self.confetti_triggered:
+                                    self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                    self.confetti_triggered = True
+                                    self.confetti_sound.play()  # Play confetti sound when triggered
 
-                            # Draw landmarks
-                            self.mp_drawing.draw_landmarks(
-                                roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                                self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
-                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
-                            )
+                        else:
+                            self.correct = False
+
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
                 else:
                     # No hand landmarks detected, do not display "Try Again"
                     self.correct = None
-
+                
                 # Display result
                 if self.correct is True:
                     result_text = "Correct"
                 elif self.correct is False:
-                    result_text = "Try Again"  # Display "Try Again" only if a wrong gesture is performed
+                    result_text = "Try Again"
+                    self.start_time = None  # Reset the timer if not correct
+                    self.confetti_triggered = False  # Reset confetti trigger if incorrect
                 else:
                     result_text = ""  # No gesture detected, display nothing
 
@@ -2272,7 +2273,7 @@ class CosmicCopyState(State):
                         # Check if the prediction is correct
                         if self.expected_value in self.alphabet_labels + self.number_labels:
                             if (self.expected_value in self.alphabet_labels and prediction < len(self.alphabet_labels) and self.expected_value == self.alphabet_labels[prediction]) or \
-                               (self.expected_value in self.number_labels and prediction < len(self.number_labels) and self.expected_value == self.number_labels[prediction]):
+                            (self.expected_value in self.number_labels and prediction < len(self.number_labels) and self.expected_value == self.number_labels[prediction]):
                                 self.correct = True
                                 if self.start_time is None:
                                     self.start_time = time.time()  # Start the timer
@@ -2284,11 +2285,7 @@ class CosmicCopyState(State):
                                         self.confetti_triggered = True
                                         self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
-                                if self.start_time is None:
-                                    self.start_time = time.time()
-                                elif time.time() - self.start_time > 5:
-                                    self.correct = False
-                                    self.start_time = None
+                                self.correct = False
                         else:
                             if prediction < len(self.phrase_labels) and self.expected_value == self.phrase_labels[prediction]:
                                 self.correct = True
@@ -2302,11 +2299,7 @@ class CosmicCopyState(State):
                                         self.confetti_triggered = True
                                         self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
-                                if self.start_time is None:
-                                    self.start_time = time.time()
-                                elif time.time() - self.start_time > 5:
-                                    self.correct = False
-                                    self.start_time = None
+                                self.correct = False
 
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(
@@ -2314,19 +2307,24 @@ class CosmicCopyState(State):
                             self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
                             self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
                         )
+                else:
+                    # No hand landmarks detected, do not display "Try Again"
+                    self.correct = None
 
                 # Display result
-                if self.correct:
+                if self.correct is True:
                     result_text = "Correct"
                     if self.start_time and time.time() - self.start_time > 5:  # Check if 5 seconds have passed
                         self.randomize_item()  # Proceed to the next item
                         self.correct = False  # Reset correct status
                         self.start_time = None  # Reset start time
                         self.confetti_triggered = False  # Reset confetti trigger for next item
-                else:
-                    result_text = "Try Again" if self.start_time else ""
+                elif self.correct is False:
+                    result_text = "Try Again"  # Display "Try Again" only if a wrong gesture is performed
                     self.start_time = None  # Reset the timer if not correct
                     self.confetti_triggered = False  # Reset confetti trigger if incorrect
+                else:
+                    result_text = ""  # No gesture detected, display nothing
 
                 result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
 
@@ -2474,51 +2472,28 @@ class StarQuestState(State):
 
         # Check if we're in a word transition delay
         if self.word_transition_time and time.time() - self.word_transition_time < 5:
-            # Determine the previous level (the completed word)
             prev_level_index = self.current_level - 1 if self.current_level > 0 else len(self.levels) - 1
             prev_level, prev_steps = self.levels[prev_level_index]
-            
-            # Display the last (fully green) image of the previous word during the transition
             img_key = f"{prev_level}_{len(prev_steps)}"
             self.game.screen.blit(self.images[img_key], (0, 0))
-            
+
             # Continue drawing confetti during transition
             if self.celebration_active:
                 for particle in self.confetti_particles[:]:
                     particle.fall()
                     particle.draw(self.game.screen)
-                    
-                    # Remove particles that fall off screen
                     if particle.y > 600 or particle.x < 0 or particle.x > 1024:
                         self.confetti_particles.remove(particle)
-                
-                # Check if celebration should end
+
                 if self.celebration_start_time and time.time() - self.celebration_start_time > 5:
                     self.celebration_active = False
                     self.celebration_start_time = None
                     self.confetti_particles = []
-            
-            # Skip the rest of the update logic during transition
+
             return
 
         img_key = f"{level}_{self.current_step}"
         self.game.screen.blit(self.images[img_key], (0, 0))
-
-        # Update and draw confetti if celebration is active
-        if self.celebration_active:
-            for particle in self.confetti_particles[:]:
-                particle.fall()
-                particle.draw(self.game.screen)
-                
-                # Remove particles that fall off screen
-                if particle.y > 600 or particle.x < 0 or particle.x > 1024:
-                    self.confetti_particles.remove(particle)
-            
-            # Check if celebration should end
-            if self.celebration_start_time and time.time() - self.celebration_start_time > 5:
-                self.celebration_active = False
-                self.celebration_start_time = None
-                self.confetti_particles = []
 
         if self.webcam:
             ret, webcam_frame = self.webcam.read()
@@ -2545,17 +2520,18 @@ class StarQuestState(State):
                                 if self.start_time is None:
                                     self.start_time = time.time()
                             else:
-                                if self.start_time is None:
-                                    self.start_time = time.time()
-                                elif time.time() - self.start_time > 5:
-                                    self.correct = False
-                                    self.start_time = None
-                            self.mp_drawing.draw_landmarks(
-                                roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                                self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
-                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
-                            )
-                if self.correct:
+                                self.correct = False
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
+                else:
+                    # No hand landmarks detected, do not display "Try Again"
+                    self.correct = None
+
+                # Display result
+                if self.correct is True:
                     result_text = "Correct"
                     if self.start_time and time.time() - self.start_time > 1:
                         self.current_step += 1
@@ -2564,17 +2540,18 @@ class StarQuestState(State):
                         if self.current_step >= len(steps):
                             self.current_step = len(steps)
                             self.celebrate()
-                            self.save_progress(level)  # Save progress when the word is completed
-                            
-                            # Set word transition time instead of immediately changing level
+                            self.save_progress(level)
                             self.word_transition_time = time.time()
                             self.current_level += 1
                             if self.current_level >= len(self.levels):
                                 self.current_level = 0
                             self.current_step = 0
-                else:
-                    result_text = "Try Again" if self.start_time else ""
+                elif self.correct is False:
+                    result_text = "Try Again"
                     self.start_time = None
+                else:
+                    result_text = ""
+
                 result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
                 result_x = self.webcam_position[0] + (self.webcam_size[0] - result_surface.get_width()) // 2
                 result_y = self.webcam_position[1] + self.webcam_size[1] + 8
