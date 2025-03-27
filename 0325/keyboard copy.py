@@ -1558,6 +1558,10 @@ class GalaxyExplorerNumberState(VideoState):
         if self.hovered_button == self.back_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
 
+        else:
+            # If video ends, loop it
+            self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
+
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
             hovered = None
