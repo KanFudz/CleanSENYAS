@@ -30,6 +30,23 @@ def get_collision_rect(img):
     collision_rect.y += full_rect.y
     return collision_rect
 
+def format_lessons(lessons, max_length=25):
+    """Format lessons into lines of a specified maximum length."""
+    formatted_lines = []
+    current_line = ""
+    for lesson in lessons:
+        if len(current_line) + len(lesson) + 2 > max_length:
+            formatted_lines.append(current_line)
+            current_line = lesson
+        else:
+            if current_line:
+                current_line += ", " + lesson
+            else:
+                current_line = lesson
+    if current_line:
+        formatted_lines.append(current_line)
+    return formatted_lines
+
 class State:
     def __init__(self, game):
         self.game = game
@@ -96,8 +113,8 @@ class OnScreenKeyboardState(State):
             "1234567890",
             "QWERTYUIOP",
             "ASDFGHJKL",
-            "ZXCVBNM←",
-            "@↑ ."
+            "↑ZXCVBNM←",
+            "@ ."
         ]
 
         self.key_width = 80
@@ -190,6 +207,21 @@ class OnScreenKeyboardState(State):
 
             if self.done_button_collision.collidepoint(event.pos):
                 pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+
+        # Handle external keyboard input
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:  # Enter key
+                self.game.change_state("playing_lgsign", self.text)
+            elif event.key == pygame.K_BACKSPACE:  # Backspace key
+                self.text = self.text[:-1]
+            elif event.key == pygame.K_LSHIFT or event.key == pygame.K_RSHIFT:  # Shift key
+                self.shift = not self.shift
+            else:
+                # Add the typed character to the text
+                char = event.unicode
+                if self.shift and char.isalpha():
+                    char = char.upper()
+                self.text += char
 
     def render(self):
         self.game.screen.fill((255, 255, 255))  # Clear screen
@@ -306,6 +338,9 @@ class VideoWithSignInState(VideoState):
         # Set current profile in the game
         self.game.current_profile = profile_name
         
+        from datetime import datetime
+        current_date = datetime.now().strftime("%m/%d/%Y")
+
         # Create save directory if it doesn't exist
         if not os.path.exists("saves"):
             os.makedirs("saves")
@@ -313,11 +348,9 @@ class VideoWithSignInState(VideoState):
         # Create a new save file with initial data
         save_data = {
             "name": profile_name,
-            "created_at": pygame.time.get_ticks(),
+            "created at": current_date,
             "progress": {
-                "level": 1,
-                "score": 0,
-                "completed_lessons": []
+                "completed lessons": []
             }
         }
         
@@ -582,7 +615,6 @@ class BLGSignState(State):
                 pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
                 self.game.change_state("playing_usertype")
 
-# Load State
 class LoadGameState(State):
     def __init__(self, game, video_key, audio_file=None):
         super().__init__(game)
@@ -591,8 +623,10 @@ class LoadGameState(State):
         self.sound = None if audio_file is None else pygame.mixer.Sound(audio_file)
         self.last_frame = None
         self.font = pygame.font.Font(None, 36)
+        self.small_font = pygame.font.Font(None, 24)  # Smaller font for save data
         self.profile_buttons = []
-        
+        self.selected_profile_data = None  # To store the loaded profile data
+        self.lines_to_draw = []  # Initialize lines_to_draw as an instance variable
         
         # Load back button image
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
@@ -611,11 +645,22 @@ class LoadGameState(State):
         # Load background image
         self.background_img = pygame.image.load("SCENES/SENYASPIC.png").convert()
 
+        # Initialize scroll settings for both profile list and data panel
         self.hovered_button = None
         self.selected_profile = None  # Track the selected profile
-        self.scroll_offset = 0  # Initialize scroll offset
-        self.dragging = False  # Flag to indicate if dragging is in progress
-        self.drag_start_y = 0  # Starting y position of the drag
+        
+        # Profile scroll settings
+        self.scroll_offset = 0
+        self.dragging = False
+        self.drag_start_y = 0
+        
+        # Data panel scroll settings - match the profile scroll implementation
+        self.data_scroll_offset = 0
+        self.data_dragging = False
+        self.data_drag_start_y = 0
+        
+        # Define data panel dimensions
+        self.data_panel = pygame.Rect(50, 150, 280, 330)
         
     def enter(self):
         # Ensure the video starts from the beginning
@@ -651,8 +696,51 @@ class LoadGameState(State):
             profile_name = file[:-5]  # Remove the .json extension
             
             # Create a rectangle for the profile button
-            button_rect = pygame.Rect(362, y_position + i * 60, 300, 50)
+            button_rect = pygame.Rect(362, y_position + i * 60, 300, 50)  # Original position
             self.profile_buttons.append((profile_name, button_rect))
+    
+    def load_profile_data(self, profile_name):
+        """Load the data from a specific profile"""
+        try:
+            with open(f"saves/{profile_name}.json", "r") as f:
+                self.selected_profile_data = json.load(f)
+                print(f"Loaded data for profile: {profile_name}")
+                
+                # After loading profile data, prepare the lines to draw
+                self.prepare_lines_to_draw()
+        except Exception as e:
+            print(f"Error loading profile data: {e}")
+            self.selected_profile_data = None
+            self.lines_to_draw = []
+    
+    def prepare_lines_to_draw(self):
+        """Prepare the lines to draw for the selected profile data"""
+        self.lines_to_draw = []
+        if not self.selected_profile_data:
+            return
+            
+        # Add progress information
+        progress = self.selected_profile_data.get('progress', {}).get('completed_lessons', {})
+        
+        # Note: We're not adding "PROGRESS:" to lines_to_draw
+        # It will be drawn separately as a fixed header
+        
+        for category, lessons in progress.items():
+            category_text = f"{category.replace('_', ' ').title()}:"
+            self.lines_to_draw.append(category_text)
+            
+            # Group lessons by type
+            grouped_lessons = {}
+            for lesson in lessons:
+                lesson_type, lesson_value = lesson.split(": ")
+                if lesson_type not in grouped_lessons:
+                    grouped_lessons[lesson_type] = []
+                grouped_lessons[lesson_type].append(lesson_value)
+            
+            for lesson_type, lesson_values in grouped_lessons.items():
+                formatted_lines = format_lessons(lesson_values)
+                self.lines_to_draw.append(f"{lesson_type}:")
+                self.lines_to_draw.extend(formatted_lines)
     
     def update(self):
         # If we don't have a frame yet, try to get one
@@ -660,17 +748,25 @@ class LoadGameState(State):
             ret, frame = self.game.videos[self.video_key].read()
             if ret:
                 self.last_frame = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (1024, 600)).swapaxes(0, 1))
-        
-        # No need to call render here, it will be called by the game loop
     
     def handle_event(self, event):
+        # Handle profile list scrolling
         if event.type == pygame.MOUSEMOTION:
+            # Handle profile list dragging
             if self.dragging:
-                # Calculate the difference in y position
                 delta_y = event.pos[1] - self.drag_start_y
                 self.scroll_offset += delta_y
-                self.scroll_offset = max(min(self.scroll_offset, 0), -max(0, (len(self.profile_buttons) - 1) * 60 - 400))  # Limit scrolling
-                self.drag_start_y = event.pos[1]  # Update the starting y position for the next motion event
+                # Limit scrolling based on the number of profiles
+                self.scroll_offset = max(min(self.scroll_offset, 0), -max(0, (len(self.profile_buttons) - 1) * 60 - 400))
+                self.drag_start_y = event.pos[1]
+            # Handle data panel dragging
+            elif self.data_dragging:
+                delta_y = event.pos[1] - self.data_drag_start_y
+                self.data_scroll_offset += delta_y
+                # Limit scrolling based on the number of lines to draw
+                max_scroll = max(0, (len(self.lines_to_draw) * 30) - (self.data_panel.height - 100))
+                self.data_scroll_offset = max(min(self.data_scroll_offset, 0), -max_scroll)
+                self.data_drag_start_y = event.pos[1]
             else:
                 # Check profile buttons
                 self.hovered_button = None
@@ -701,40 +797,63 @@ class LoadGameState(State):
         
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left mouse button
-                self.dragging = True
-                self.drag_start_y = event.pos[1]
-            
-            # Check profile buttons
-            for profile_name, button_rect in self.profile_buttons:
-                if button_rect.move(0, self.scroll_offset).collidepoint(event.pos):
+                # Check if the click is within the profile buttons area
+                profile_area = pygame.Rect(362, 150, 300, 420)
+                if profile_area.collidepoint(event.pos):
+                    self.dragging = True
+                    self.drag_start_y = event.pos[1]
+                
+                # Check if the click is within the data panel scrollable area
+                # Here we define the scrollable area excluding the fixed header
+                data_scroll_area = pygame.Rect(
+                    self.data_panel.x, 
+                    self.data_panel.y + 100,  # Add offset for the fixed header
+                    self.data_panel.width, 
+                    self.data_panel.height - 100
+                )
+                
+                if data_scroll_area.collidepoint(event.pos) and self.selected_profile_data:
+                    self.data_dragging = True
+                    self.data_drag_start_y = event.pos[1]
+                
+                # Check profile buttons
+                for profile_name, button_rect in self.profile_buttons:
+                    if button_rect.move(0, self.scroll_offset).collidepoint(event.pos):
+                        pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                        self.selected_profile = profile_name
+                        self.load_profile_data(profile_name)
+                        
+                        # Reset data scroll offset when selecting a new profile
+                        self.data_scroll_offset = 0
+                        return
+                
+                # Check back button
+                if self.back_button_collision.collidepoint(event.pos):
                     pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
-                    self.selected_profile = profile_name  # Select the profile
-                    return
-            
-            # Check back button
-            if self.back_button_collision.collidepoint(event.pos):
-                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
-                self.game.change_state("playing_blgsign")
+                    self.game.change_state("playing_blgsign")
 
-            # Check load button
-            if self.load_button_collision.collidepoint(event.pos) and self.selected_profile:
-                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
-                self.game.current_profile = self.selected_profile
-                print(f"Loaded profile: {self.selected_profile}")
-                self.game.change_state("playing_home")
+                # Check load button
+                if self.load_button_collision.collidepoint(event.pos) and self.selected_profile:
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    self.game.current_profile = self.selected_profile
+                    print(f"Loaded profile: {self.selected_profile}")
+                    self.game.change_state("playing_home")
 
-            # Check delete button
-            if self.delete_button_collision.collidepoint(event.pos) and self.selected_profile:
-                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
-                os.remove(f"saves/{self.selected_profile}.json")
-                print(f"Deleted profile: {self.selected_profile}")
-                self.selected_profile = None  # Deselect the profile
-                self.load_profiles()  # Reload profiles
+                # Check delete button
+                if self.delete_button_collision.collidepoint(event.pos) and self.selected_profile:
+                    pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                    os.remove(f"saves/{self.selected_profile}.json")
+                    print(f"Deleted profile: {self.selected_profile}")
+                    self.selected_profile = None
+                    self.selected_profile_data = None
+                    self.lines_to_draw = []
+                    self.load_profiles()
         
         if event.type == pygame.MOUSEBUTTONUP:
             if event.button == 1:  # Left mouse button
                 self.dragging = False
-    
+                self.data_dragging = False
+
     def render(self):
         # Draw the background image
         self.game.screen.blit(self.background_img, (0, 0))
@@ -749,8 +868,62 @@ class LoadGameState(State):
         
         # Draw a title for the load game screen
         title_text = self.font.render("SELECT A PROFILE", True, pygame.Color('white'))
-        title_rect = title_text.get_rect(center=(512, 100))
+        title_rect = title_text.get_rect(center=(512, 50))
         self.game.screen.blit(title_text, title_rect)
+        
+        # Draw the selected profile data on the left side
+        if self.selected_profile_data:
+            # Draw the data panel
+            pygame.draw.rect(self.game.screen, (30, 30, 60), self.data_panel)
+            pygame.draw.rect(self.game.screen, (0, 200, 200), self.data_panel, 2)
+            
+            # Draw the header with smaller font size
+            header_text = self.small_font.render(f"Profile: {self.selected_profile}", True, pygame.Color('green'))
+            header_rect = header_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 10)
+            self.game.screen.blit(header_text, header_rect)
+            
+            # Draw the creation date
+            created_at_text = self.small_font.render(f"Created at: {self.selected_profile_data.get('created at', 'N/A')}", True, pygame.Color('green'))
+            created_at_rect = created_at_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 40)
+            self.game.screen.blit(created_at_text, created_at_rect)
+            
+            # Draw the "PROGRESS:" header as a fixed element (not scrollable)
+            progress_text = self.small_font.render("PROGRESS:", True, pygame.Color('white'))
+            progress_rect = progress_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 70)
+            self.game.screen.blit(progress_text, progress_rect)
+            
+            # Draw the progress information with scrolling
+            # Start drawing below the fixed header
+            base_y = self.data_panel.y + 100
+            line_height = 30
+            
+            # Calculate the range of lines to display based on the scroll offset
+            start_index = max(0, int(-self.data_scroll_offset / line_height))
+            end_index = min(len(self.lines_to_draw), start_index + int((self.data_panel.height - 100) / line_height))
+            
+            # Draw only the visible lines
+            for i in range(start_index, end_index):
+                line = self.lines_to_draw[i]
+                y_pos = base_y + (i * line_height) + self.data_scroll_offset
+                
+                # Skip lines that would be drawn outside the scrollable area
+                if y_pos < base_y or y_pos > self.data_panel.y + self.data_panel.height:
+                    continue
+                
+                # Determine indent level based on the line content
+                indent = 10
+                if line.startswith("  "):
+                    indent = 30
+                elif ":" in line:
+                    if "Alphabets" in line or "Number" in line or "Phrase" in line or "Fingerspelling" in line:
+                        indent = 20
+                    else:
+                        indent = 10
+                else:
+                    indent = 30
+
+                line_text = self.small_font.render(line, True, pygame.Color('white'))
+                self.game.screen.blit(line_text, (self.data_panel.x + indent, y_pos))
         
         # Calculate the range of profiles to display based on the scroll offset
         profile_height = 60
@@ -775,17 +948,17 @@ class LoadGameState(State):
             text_rect = name_text.get_rect(center=adjusted_rect.center)
             self.game.screen.blit(name_text, text_rect)
         
-        # Draw back button
+        # Draw back button (keep the original position since it's set in the button's rect)
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
         if self.hovered_button == self.back_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
 
-        # Draw load button
+        # Draw load button (keep the original position since it's set in the button's rect)
         self.game.screen.blit(self.load_button_img, self.load_button_rect.topleft)
         if self.hovered_button == self.load_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.load_button_collision, 3)
 
-        # Draw delete button
+        # Draw delete button (keep the original position since it's set in the button's rect)
         self.game.screen.blit(self.delete_button_img, self.delete_button_rect.topleft)
         if self.hovered_button == self.delete_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.delete_button_collision, 3)
@@ -887,6 +1060,36 @@ class HomeState(VideoState):
             if self.back_button_collision.collidepoint(event.pos):
                 pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
                 self.game.change_state("playing_usertype")
+
+class Confetti:
+    def __init__(self, screen_width, screen_height):
+        self.x = random.randint(0, screen_width)
+        self.y = random.randint(0, screen_height // 3)  # Start in top third
+        self.color = random.choice([(255, 0, 0), (0, 255, 0), (0, 0, 255), 
+                                  (255, 255, 0), (255, 0, 255), (0, 255, 255)])
+        self.width = random.randint(5, 15)
+        self.height = random.randint(5, 15)
+        self.speed = random.uniform(5, 12)
+        self.rotation = random.randint(0, 360)
+        self.rotation_speed = random.uniform(-8, 8)
+
+    def fall(self):
+        self.y += self.speed
+        self.rotation += self.rotation_speed
+
+    def draw(self, surface):
+        # Create a surface for the rotated rectangle
+        confetti_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        pygame.draw.rect(confetti_surface, self.color, (0, 0, self.width, self.height))
+        
+        # Rotate the surface
+        rotated_surface = pygame.transform.rotate(confetti_surface, self.rotation)
+        
+        # Get the rect of the rotated surface and set its center to the confetti position
+        rect = rotated_surface.get_rect(center=(self.x, self.y))
+        
+        # Draw the rotated surface
+        surface.blit(rotated_surface, rect.topleft)
 
 class GalaxyExplorerState(VideoState):
     def __init__(self, game, video_key, next_state=None, audio_file=None):
@@ -1085,6 +1288,13 @@ class AlphabetDisplayState(State):
         self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
         self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))  # Center the image
 
+        # Add confetti-related attributes
+        self.confetti_particles = []
+        self.confetti_triggered = False
+
+        # Load confetti sound effect
+        self.confetti_sound = pygame.mixer.Sound("AUDIO/CELEB.mp3")
+
         # Back button (Initialize once)
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
         self.back_button_rect = self.back_button_img.get_rect()
@@ -1104,7 +1314,7 @@ class AlphabetDisplayState(State):
         self.webcam = None  # Initialize webcam as None
 
         # Load the TFLite model
-        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model_v2.tflite")
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
@@ -1112,7 +1322,7 @@ class AlphabetDisplayState(State):
         # Mediapipe Hands setup
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
-        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing = mp.solutions.drawing_utils  # Corrected line
 
         # Label map
         self.labels = [chr(i) for i in range(ord('A'), ord('Z') + 1)]
@@ -1172,18 +1382,22 @@ class AlphabetDisplayState(State):
                             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                             prediction = np.argmax(output_data)
                             
-                            # Check if the prediction is correct
-                            if self.labels[prediction] == self.expected_letter:
-                                self.correct = True
-                                if self.start_time is None:
-                                    self.start_time = time.time()  # Start the timer
-                                    self.save_progress()  # Save progress when correct
+                            # Adjust confidence threshold to 0.99
+                            confidence = output_data[0][prediction]
+                            if confidence >= 0.99:  # Updated threshold
+                                if self.labels[prediction] == self.expected_letter:
+                                    self.correct = True
+                                    if self.start_time is None:
+                                        self.start_time = time.time()  # Start the timer
+                                        self.save_progress()  # Save progress when correct
+
+                                        # Trigger confetti effect when correct sign is made
+                                        if not self.confetti_triggered:
+                                            self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                            self.confetti_triggered = True
+                                            self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
-                                if self.start_time is None:
-                                    self.start_time = time.time()
-                                elif time.time() - self.start_time > 5:
-                                    self.correct = False
-                                    self.start_time = None
+                                self.correct = False
 
                             # Draw landmarks
                             self.mp_drawing.draw_landmarks(
@@ -1211,6 +1425,16 @@ class AlphabetDisplayState(State):
                 webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
                 self.game.screen.blit(webcam_surface, self.webcam_position)
 
+
+        # Update and draw confetti particles
+        for particle in self.confetti_particles[:]:
+            particle.fall()
+            particle.draw(self.game.screen)
+            
+            # Remove particles that fall off screen
+            if particle.y > 600:
+                self.confetti_particles.remove(particle)
+
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
 
@@ -1222,6 +1446,13 @@ class AlphabetDisplayState(State):
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
         elif self.hovered_button == self.next_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+    
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.correct = False
+        self.start_time = None
+        self.confetti_triggered = False
+        self.confetti_particles = []
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -1320,16 +1551,20 @@ class GalaxyExplorerNumberState(VideoState):
                 (0, 0)
             )
 
-        # Draw buttons
-        for image, rect, collision_rect, _ in self.buttons:
-            self.game.screen.blit(image, rect.topleft)
-            if collision_rect == self.hovered_button:
-                pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
+            # Draw buttons
+            for image, rect, collision_rect, _ in self.buttons:
+                self.game.screen.blit(image, rect.topleft)
+                if collision_rect == self.hovered_button:
+                    pygame.draw.rect(self.game.screen, (0, 255, 0), collision_rect, 3)
 
-        # Draw back button
-        self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
-        if self.hovered_button == self.back_button_collision:
-            pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+            # Draw back button
+            self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
+            if self.hovered_button == self.back_button_collision:
+                pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
+                
+        else:
+            # If video ends, loop it
+            self.game.videos[self.video_key].set(cv2.CAP_PROP_POS_FRAMES, 0)
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -1366,6 +1601,13 @@ class NumberDisplayState(State):
         # Scale the image to fit within 1024x600 while maintaining aspect ratio
         self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
         self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))  # Center the image
+
+        # Add confetti-related attributes
+        self.confetti_particles = []
+        self.confetti_triggered = False
+
+        # Load confetti sound effect
+        self.confetti_sound = pygame.mixer.Sound("AUDIO/CELEB.mp3")
 
         # Back button (Initialize once)
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
@@ -1452,18 +1694,22 @@ class NumberDisplayState(State):
                         output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                         prediction = np.argmax(output_data)
                         
-                        # Check if the prediction is correct
-                        if self.labels[prediction] == str(self.expected_number):
-                            self.correct = True
-                            if self.start_time is None:
-                                self.start_time = time.time()  # Start the timer
-                                self.save_progress()  # Save progress when correct
+                        # Adjust confidence threshold to 0.99
+                        confidence = output_data[0][prediction]
+                        if confidence >= 0.99:  # Updated threshold
+                            if self.labels[prediction] == str(self.expected_number):
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                                    self.save_progress()  # Save progress when correct
+
+                                    # Trigger confetti effect when correct sign is made
+                                    if not self.confetti_triggered:
+                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                        self.confetti_triggered = True
+                                        self.confetti_sound.play()  # Play confetti sound when triggered
                         else:
-                            if self.start_time is None:
-                                self.start_time = time.time()
-                            elif time.time() - self.start_time > 5:
-                                self.correct = False
-                                self.start_time = None
+                            self.correct = False
 
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(
@@ -1491,6 +1737,15 @@ class NumberDisplayState(State):
                 webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
                 self.game.screen.blit(webcam_surface, self.webcam_position)
 
+        # Update and draw confetti particles
+        for particle in self.confetti_particles[:]:
+            particle.fall()
+            particle.draw(self.game.screen)
+            
+            # Remove particles that fall off screen
+            if particle.y > 600:
+                self.confetti_particles.remove(particle)
+
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
 
@@ -1502,6 +1757,13 @@ class NumberDisplayState(State):
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
         elif self.hovered_button == self.next_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+
+    def enter(self):
+        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
+        self.correct = False
+        self.start_time = None
+        self.confetti_triggered = False
+        self.confetti_particles = []
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -1655,6 +1917,13 @@ class PhraseDisplayState(State):
         self.image = pygame.transform.smoothscale(self.original_image, self.get_scaled_dimensions(self.original_image, 1024, 600))
         self.image_rect = self.image.get_rect(center=(1024 // 2, 600 // 2))  # Center the image
 
+        # Add confetti-related attributes
+        self.confetti_particles = []
+        self.confetti_triggered = False
+
+        # Load confetti sound effect
+        self.confetti_sound = pygame.mixer.Sound("AUDIO/CELEB.mp3")
+
         # Back button (Initialize once)
         self.back_button_img = pygame.image.load("BUTTONS/BACK.png").convert_alpha()
         self.back_button_rect = self.back_button_img.get_rect()
@@ -1705,6 +1974,8 @@ class PhraseDisplayState(State):
         self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
         self.correct = False
         self.start_time = None
+        self.confetti_triggered = False
+        self.confetti_particles = []
 
     def exit(self):
         if self.webcam:
@@ -1747,12 +2018,20 @@ class PhraseDisplayState(State):
                             if self.start_time is None:
                                 self.start_time = time.time()  # Start the timer
                                 self.save_progress()  # Save progress when correct
+
+                                # Trigger confetti effect when correct sign is made
+                                if not self.confetti_triggered:
+                                    self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                    self.confetti_triggered = True
+                                    self.confetti_sound.play()  # Play confetti sound when triggered
+
                         else:
                             if self.start_time is None:
                                 self.start_time = time.time()
                             elif time.time() - self.start_time > 5:
                                 self.correct = False
                                 self.start_time = None
+                                self.confetti_triggered = False  # Reset confetti trigger
 
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(
@@ -1779,6 +2058,15 @@ class PhraseDisplayState(State):
                 # Convert the webcam frame to a surface and blit it
                 webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
                 self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        # Update and draw confetti particles
+        for particle in self.confetti_particles[:]:
+            particle.fall()
+            particle.draw(self.game.screen)
+            
+            # Remove particles that fall off screen
+            if particle.y > 600:
+                self.confetti_particles.remove(particle)
 
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
@@ -1846,6 +2134,7 @@ class PhraseDisplayState(State):
                     json.dump(save_data, f, indent=4)
                 
                 print(f"Progress saved for phrase: {self.expected_phrase} in Galaxy Explorer")
+
                 
 class CosmicCopyState(State):
     def __init__(self, game):
@@ -1854,7 +2143,7 @@ class CosmicCopyState(State):
         self.expected_value = None
 
         # Load the TFLite models
-        self.alphabet_model = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
+        self.alphabet_model = tflite.Interpreter(model_path="MODEL/asl_mlp_model_v2.tflite")
         self.alphabet_model.allocate_tensors()
         self.number_model = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
         self.number_model.allocate_tensors()
@@ -1883,6 +2172,13 @@ class CosmicCopyState(State):
         self.start_time = None
         self.correct = False
 
+        # Add confetti-related attributes
+        self.confetti_particles = []
+        self.confetti_triggered = False
+        
+        # Load confetti sound effect
+        self.confetti_sound = pygame.mixer.Sound("AUDIO/CELEB.mp3")
+
         # Webcam feed parameters
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
@@ -1892,6 +2188,8 @@ class CosmicCopyState(State):
         self.randomize_item()
         self.correct = False
         self.start_time = None
+        self.confetti_particles = []  # Reset confetti particles
+        self.confetti_triggered = False
 
     def exit(self):
         if self.webcam:
@@ -1918,6 +2216,7 @@ class CosmicCopyState(State):
         img_width, img_height = image.get_size()
         scale_factor = min(max_width / img_width, max_height / img_height)
         return int(img_width * scale_factor), int(img_height * scale_factor)
+    
 
     def update(self):
         self.game.screen.fill((0, 0, 0))  # Clear screen
@@ -1967,6 +2266,12 @@ class CosmicCopyState(State):
                                 if self.start_time is None:
                                     self.start_time = time.time()  # Start the timer
                                     self.save_progress("alphabet" if self.expected_value in self.alphabet_labels else "number", self.expected_value)
+
+                                    # Trigger confetti effect when correct
+                                    if not self.confetti_triggered:
+                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                        self.confetti_triggered = True
+                                        self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
                                 if self.start_time is None:
                                     self.start_time = time.time()
@@ -1979,6 +2284,12 @@ class CosmicCopyState(State):
                                 if self.start_time is None:
                                     self.start_time = time.time()  # Start the timer
                                     self.save_progress("phrase", self.expected_value)
+
+                                    # Trigger confetti effect when correct
+                                    if not self.confetti_triggered:
+                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                        self.confetti_triggered = True
+                                        self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
                                 if self.start_time is None:
                                     self.start_time = time.time()
@@ -1996,13 +2307,15 @@ class CosmicCopyState(State):
                 # Display result
                 if self.correct:
                     result_text = "Correct"
-                    if self.start_time and time.time() - self.start_time > 1:  # Check if 1 seconds have passed
+                    if self.start_time and time.time() - self.start_time > 5:  # Check if 5 seconds have passed
                         self.randomize_item()  # Proceed to the next item
                         self.correct = False  # Reset correct status
                         self.start_time = None  # Reset start time
+                        self.confetti_triggered = False  # Reset confetti trigger for next item
                 else:
                     result_text = "Try Again" if self.start_time else ""
                     self.start_time = None  # Reset the timer if not correct
+                    self.confetti_triggered = False  # Reset confetti trigger if incorrect
 
                 result_surface = self.game.font.render(result_text, True, pygame.Color('white'))
 
@@ -2015,6 +2328,15 @@ class CosmicCopyState(State):
                 # Convert the webcam frame to a surface and blit it
                 webcam_surface = pygame.surfarray.make_surface(cv2.resize(cv2.cvtColor(webcam_frame, cv2.COLOR_BGR2RGB), self.webcam_size).swapaxes(0, 1))
                 self.game.screen.blit(webcam_surface, self.webcam_position)
+
+        # Update and draw confetti particles
+        for particle in self.confetti_particles[:]:
+            particle.fall()
+            particle.draw(self.game.screen)
+            
+            # Remove particles that fall off screen
+            if particle.y > 600 or particle.x < 0 or particle.x > 1024:
+                self.confetti_particles.remove(particle)
 
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
@@ -2037,6 +2359,7 @@ class CosmicCopyState(State):
                 pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
                 self.correct = False  # Reset correct status
                 self.start_time = None  # Reset start time
+                self.confetti_triggered = False  # Reset confetti trigger when going back
                 self.game.change_state("playing_home")
 
     def save_progress(self, item_type, item_value):
@@ -2086,10 +2409,11 @@ class StarQuestState(State):
         self.current_step = 0
         self.correct = False
         self.start_time = None
+        self.word_transition_time = None  # New attribute for word transition delay
         self.load_images()
         self.load_model()
         self.setup_mediapipe()
-        self.webcam = None  # Initialize webcam as None
+        self.webcam = None
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
         self.hovered_button = None
@@ -2107,7 +2431,7 @@ class StarQuestState(State):
                 self.images[f"{level}_{i}"] = pygame.image.load(img_path).convert_alpha()
 
     def load_model(self):
-        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model.tflite")
+        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_mlp_model_v2.tflite")
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
@@ -2124,6 +2448,9 @@ class StarQuestState(State):
         self.current_step = 0
         self.correct = False
         self.start_time = None
+        self.confetti_particles = []
+        self.celebration_active = False
+        self.celebration_start_time = None
 
     def exit(self):
         if self.webcam:
@@ -2133,8 +2460,50 @@ class StarQuestState(State):
     def update(self):
         self.game.screen.fill((0, 0, 0))
         level, steps = self.levels[self.current_level]
+        
+        # Check if we're in a word transition delay
+        if self.word_transition_time and time.time() - self.word_transition_time < 5:
+            # Display the last image of the previous word during the transition
+            img_key = f"{level}_{len(steps)}"
+            self.game.screen.blit(self.images[img_key], (0, 0))
+            
+            # Continue drawing confetti during transition
+            if self.celebration_active:
+                for particle in self.confetti_particles[:]:
+                    particle.fall()
+                    particle.draw(self.game.screen)
+                    
+                    # Remove particles that fall off screen
+                    if particle.y > 600 or particle.x < 0 or particle.x > 1024:
+                        self.confetti_particles.remove(particle)
+                
+                # Check if celebration should end
+                if self.celebration_start_time and time.time() - self.celebration_start_time > 5:
+                    self.celebration_active = False
+                    self.celebration_start_time = None
+                    self.confetti_particles = []
+            
+            # Skip the rest of the update logic during transition
+            return
+
         img_key = f"{level}_{self.current_step}"
         self.game.screen.blit(self.images[img_key], (0, 0))
+
+        # Update and draw confetti if celebration is active
+        if self.celebration_active:
+            for particle in self.confetti_particles[:]:
+                particle.fall()
+                particle.draw(self.game.screen)
+                
+                # Remove particles that fall off screen
+                if particle.y > 600 or particle.x < 0 or particle.x > 1024:
+                    self.confetti_particles.remove(particle)
+            
+            # Check if celebration should end
+            if self.celebration_start_time and time.time() - self.celebration_start_time > 5:
+                self.celebration_active = False
+                self.celebration_start_time = None
+                self.confetti_particles = []
 
         if self.webcam:
             ret, webcam_frame = self.webcam.read()
@@ -2181,6 +2550,9 @@ class StarQuestState(State):
                             self.current_step = len(steps)
                             self.celebrate()
                             self.save_progress(level)  # Save progress when the word is completed
+                            
+                            # Set word transition time instead of immediately changing level
+                            self.word_transition_time = time.time()
                             self.current_level += 1
                             if self.current_level >= len(self.levels):
                                 self.current_level = 0
@@ -2213,8 +2585,14 @@ class StarQuestState(State):
                 self.game.change_state("playing_home")
 
     def celebrate(self):
-        # Add celebration logic here (e.g., play a sound, show an animation, etc.)
-        pass
+        # Create confetti particles
+        self.confetti_particles = [Confetti(1024, 600) for _ in range(150)]  # More particles for word completion
+        self.celebration_active = True
+        self.celebration_start_time = time.time()
+        
+        # Load confetti sound effect
+        self.confetti_sound = pygame.mixer.Sound("AUDIO/CELEB.mp3")
+        self.confetti_sound.play()  # This line plays the sound
 
     def save_progress(self, word):
         """Save the progress of the current profile"""
