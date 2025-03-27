@@ -1305,6 +1305,11 @@ class AlphabetDisplayState(State):
         self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
         self.next_button_collision = get_collision_rect(self.next_button_img)
 
+        # Previous button
+        self.prev_button_img = pygame.image.load("BUTTONS/PREV.png").convert_alpha()
+        self.prev_button_rect = self.prev_button_img.get_rect()  # Position at top left
+        self.prev_button_collision = get_collision_rect(self.prev_button_img)
+
         self.last_frame = None
         self.hovered_button = None
 
@@ -1444,11 +1449,16 @@ class AlphabetDisplayState(State):
         # Draw next button
         self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
 
+        # Draw previous button
+        self.game.screen.blit(self.prev_button_img, self.prev_button_rect.topleft)
+
         # Draw hover effect
         if self.hovered_button == self.back_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
         elif self.hovered_button == self.next_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+        elif self.hovered_button == self.prev_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.prev_button_collision, 3)
     
     def enter(self):
         self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
@@ -1467,6 +1477,10 @@ class AlphabetDisplayState(State):
                 if self.hovered_button != self.next_button_collision:
                     pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
                 self.hovered_button = self.next_button_collision
+            elif self.prev_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.prev_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.prev_button_collision
             else:
                 self.hovered_button = None
 
@@ -1487,6 +1501,19 @@ class AlphabetDisplayState(State):
                     next_state = "playing_alphabets"  # Default fallback
 
                 self.game.change_state(next_state)
+            elif self.prev_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Find the previous letter in sequence
+                if self.game.current_state_name in self.game.alphabet_sequence:
+                    current_index = self.game.alphabet_sequence.index(self.game.current_state_name)
+                    if current_index > 0:
+                        prev_state = self.game.alphabet_sequence[current_index - 1]
+                    else:
+                        prev_state = "playing_alphabets"  # Return to alphabet selection if first letter is reached
+                else:
+                    prev_state = "playing_alphabets"  # Default fallback
+
+                self.game.change_state(prev_state)
 
     def save_progress(self):
         """Save the progress of the current profile"""
@@ -1622,6 +1649,11 @@ class NumberDisplayState(State):
         self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
         self.next_button_collision = get_collision_rect(self.next_button_img)
 
+        # Previous button
+        self.prev_button_img = pygame.image.load("BUTTONS/PREV.png").convert_alpha()
+        self.prev_button_rect = self.prev_button_img.get_rect()  # Position at top left
+        self.prev_button_collision = get_collision_rect(self.prev_button_img)
+
         self.last_frame = None
         self.hovered_button = None
 
@@ -1661,6 +1693,8 @@ class NumberDisplayState(State):
         self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
         self.correct = False
         self.start_time = None
+        self.confetti_triggered = False
+        self.confetti_particles = []
 
     def exit(self):
         if self.webcam:
@@ -1761,11 +1795,16 @@ class NumberDisplayState(State):
         # Draw next button
         self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
 
+        # Draw previous button
+        self.game.screen.blit(self.prev_button_img, self.prev_button_rect.topleft)
+
         # Draw hover effect
         if self.hovered_button == self.back_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
         elif self.hovered_button == self.next_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+        elif self.hovered_button == self.prev_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.prev_button_collision, 3)
 
     def enter(self):
         self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
@@ -1784,6 +1823,10 @@ class NumberDisplayState(State):
                 if self.hovered_button != self.next_button_collision:
                     pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
                 self.hovered_button = self.next_button_collision
+            elif self.prev_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.prev_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.prev_button_collision
             else:
                 self.hovered_button = None
 
@@ -1804,6 +1847,19 @@ class NumberDisplayState(State):
                     next_state = "playing_numbers"  # Default fallback
 
                 self.game.change_state(next_state)
+            elif self.prev_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Find the previous number in sequence
+                if self.game.current_state_name in self.game.number_sequence:
+                    current_index = self.game.number_sequence.index(self.game.current_state_name)
+                    if current_index > 0:
+                        prev_state = self.game.number_sequence[current_index - 1]
+                    else:
+                        prev_state = "playing_numbers"  # Return to number selection if first number is reached
+                else:
+                    prev_state = "playing_numbers"  # Default fallback
+
+                self.game.change_state(prev_state)
 
     def save_progress(self):
         """Save the progress of the current profile"""
@@ -1939,10 +1995,15 @@ class PhraseDisplayState(State):
         self.back_button_collision = get_collision_rect(self.back_button_img)
 
         # Next button
-
         self.next_button_img = pygame.image.load("BUTTONS/NXT.png").convert_alpha()
         self.next_button_rect = self.next_button_img.get_rect()  # Position at top right
         self.next_button_collision = get_collision_rect(self.next_button_img)
+
+        # Previous button
+        self.prev_button_img = pygame.image.load("BUTTONS/PREV.png").convert_alpha()
+        self.prev_button_rect = self.prev_button_img.get_rect()  # Position at top left
+        self.prev_button_collision = get_collision_rect(self.prev_button_img)
+
 
         self.last_frame = None
         self.hovered_button = None
@@ -2086,11 +2147,16 @@ class PhraseDisplayState(State):
         # Draw next button
         self.game.screen.blit(self.next_button_img, self.next_button_rect.topleft)
 
+        # Draw previous button
+        self.game.screen.blit(self.prev_button_img, self.prev_button_rect.topleft)
+
         # Draw hover effect
         if self.hovered_button == self.back_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.back_button_collision, 3)
         elif self.hovered_button == self.next_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
+        elif self.hovered_button == self.prev_button_collision:
+            pygame.draw.rect(self.game.screen, (0, 255, 0), self.prev_button_collision, 3)
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -2102,6 +2168,10 @@ class PhraseDisplayState(State):
                 if self.hovered_button != self.next_button_collision:
                     pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
                 self.hovered_button = self.next_button_collision
+            elif self.prev_button_collision.collidepoint(event.pos):
+                if self.hovered_button != self.prev_button_collision:
+                    pygame.mixer.Sound("AUDIO/CURSOR ON TOP.mp3").play()
+                self.hovered_button = self.prev_button_collision
             else:
                 self.hovered_button = None
 
@@ -2122,6 +2192,19 @@ class PhraseDisplayState(State):
                     next_state = "playing_phrases"  # Default fallback
 
                 self.game.change_state(next_state)
+            elif self.prev_button_collision.collidepoint(event.pos):
+                pygame.mixer.Sound("AUDIO/MOUSE CLICK.mp3").play()
+                # Find the previous phrase in sequence
+                if self.game.current_state_name in self.game.phrase_sequence:
+                    current_index = self.game.phrase_sequence.index(self.game.current_state_name)
+                    if current_index > 0:
+                        prev_state = self.game.phrase_sequence[current_index - 1]
+                    else:
+                        prev_state = "playing_phrases"  # Return to phrase selection if first phrase is reached
+                else:
+                    prev_state = "playing_phrases"  # Default fallback
+
+                self.game.change_state(prev_state)
 
     def save_progress(self):
         """Save the progress of the current profile"""
