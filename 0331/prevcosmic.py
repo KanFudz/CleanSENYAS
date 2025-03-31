@@ -1349,6 +1349,8 @@ class AlphabetDisplayState(State):
         self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
         self.correct = False
         self.start_time = None
+        self.confetti_triggered = False
+        self.confetti_particles = []
 
     def exit(self):
         if self.webcam:
@@ -1370,8 +1372,8 @@ class AlphabetDisplayState(State):
                 roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
                 result = self.hands.process(roi_rgb)
 
-                # Check if any hand landmarks are detected
-                if result.multi_hand_landmarks:
+                # Only process hand landmarks if no celebration is active
+                if result.multi_hand_landmarks and not self.confetti_triggered:
                     for hand_landmarks in result.multi_hand_landmarks:
                         landmarks = []
                         for lm in hand_landmarks.landmark:
@@ -1402,16 +1404,21 @@ class AlphabetDisplayState(State):
                                         self.confetti_triggered = True
                                         self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
-                                self.correct = False
+                                # Only set to false if we're not in celebration mode
+                                if not self.confetti_triggered:
+                                    self.correct = False
 
-                            # Draw landmarks
-                            self.mp_drawing.draw_landmarks(
-                                roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                                self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
-                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
-                            )
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
+                elif self.confetti_triggered:
+                    # We're in celebration mode, keep the correct state
+                    pass
                 else:
-                    # No hand landmarks detected, do not display "Try Again"
+                    # No hand landmarks detected and not in celebration
                     self.correct = None
 
                 # Display result
@@ -1442,6 +1449,12 @@ class AlphabetDisplayState(State):
             # Remove particles that fall off screen
             if particle.y > 600:
                 self.confetti_particles.remove(particle)
+        
+        # Check if celebration has ended (no more confetti particles)
+        if self.confetti_triggered and len(self.confetti_particles) == 0:
+            self.confetti_triggered = False
+            self.correct = False  # Reset the correct state
+            self.start_time = None  # Reset the timer
 
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
@@ -1459,13 +1472,6 @@ class AlphabetDisplayState(State):
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
         elif self.hovered_button == self.prev_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.prev_button_collision, 3)
-    
-    def enter(self):
-        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
-        self.correct = False
-        self.start_time = None
-        self.confetti_triggered = False
-        self.confetti_particles = []
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -1716,8 +1722,8 @@ class NumberDisplayState(State):
                 roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
                 result = self.hands.process(roi_rgb)
 
-                # Check if any hand landmarks are detected
-                if result.multi_hand_landmarks:
+                # Only process hand landmarks if no celebration is active
+                if result.multi_hand_landmarks and not self.confetti_triggered:
                     for hand_landmarks in result.multi_hand_landmarks:
                         landmarks = []
                         for lm in hand_landmarks.landmark:
@@ -1748,16 +1754,21 @@ class NumberDisplayState(State):
                                         self.confetti_triggered = True
                                         self.confetti_sound.play()  # Play confetti sound when triggered
                             else:
-                                self.correct = False
+                                # Only set to false if we're not in celebration mode
+                                if not self.confetti_triggered:
+                                    self.correct = False
 
-                            # Draw landmarks
-                            self.mp_drawing.draw_landmarks(
-                                roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                                self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
-                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
-                            )
+                        # Draw landmarks
+                        self.mp_drawing.draw_landmarks(
+                            roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
+                        )
+                elif self.confetti_triggered:
+                    # We're in celebration mode, keep the correct state
+                    pass
                 else:
-                    # No hand landmarks detected, do not display "Try Again"
+                    # No hand landmarks detected and not in celebration
                     self.correct = None
 
                 # Display result
@@ -1788,6 +1799,12 @@ class NumberDisplayState(State):
             # Remove particles that fall off screen
             if particle.y > 600:
                 self.confetti_particles.remove(particle)
+        
+        # Check if celebration has ended (no more confetti particles)
+        if self.confetti_triggered and len(self.confetti_particles) == 0:
+            self.confetti_triggered = False
+            self.correct = False  # Reset the correct state
+            self.start_time = None  # Reset the timer
 
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
@@ -1805,13 +1822,6 @@ class NumberDisplayState(State):
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.next_button_collision, 3)
         elif self.hovered_button == self.prev_button_collision:
             pygame.draw.rect(self.game.screen, (0, 255, 0), self.prev_button_collision, 3)
-
-    def enter(self):
-        self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
-        self.correct = False
-        self.start_time = None
-        self.confetti_triggered = False
-        self.confetti_particles = []
 
     def handle_event(self, event):
         if event.type == pygame.MOUSEMOTION:
@@ -2004,7 +2014,6 @@ class PhraseDisplayState(State):
         self.prev_button_rect = self.prev_button_img.get_rect()  # Position at top left
         self.prev_button_collision = get_collision_rect(self.prev_button_img)
 
-
         self.last_frame = None
         self.hovered_button = None
 
@@ -2067,7 +2076,8 @@ class PhraseDisplayState(State):
                 roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
                 result = self.hands.process(roi_rgb)
                 
-                if result.multi_hand_landmarks:
+                # Only process hand landmarks if no celebration is active
+                if result.multi_hand_landmarks and not self.confetti_triggered:
                     for hand_landmarks in result.multi_hand_landmarks:
                         landmarks = []
                         for lm in hand_landmarks.landmark:
@@ -2076,50 +2086,50 @@ class PhraseDisplayState(State):
                         # Convert landmarks to NumPy array and reshape
                         input_data = np.array(landmarks, dtype=np.float32).reshape(1, -1)
                         
-                        # Perform inference
+                        # Ensure the input data has the correct shape
                         if input_data.shape[1] == self.input_details[0]['shape'][1]:
+                            # Perform inference
                             self.interpreter.set_tensor(self.input_details[0]['index'], input_data)
                             self.interpreter.invoke()
                             output_data = self.interpreter.get_tensor(self.output_details[0]['index'])
                             prediction = np.argmax(output_data)
-                        
-                        if self.labels[prediction] == self.expected_phrase:
-                            self.correct = True
-                            if self.start_time is None:
-                                self.start_time = time.time()  # Start the timer
-                                self.save_progress()  # Save progress when correct
+                            
+                            # Adjust confidence threshold to 0.99
+                            confidence = output_data[0][prediction]
+                            if confidence >= 0.99 and self.labels[prediction] == self.expected_phrase:
+                                self.correct = True
+                                if self.start_time is None:
+                                    self.start_time = time.time()  # Start the timer
+                                    self.save_progress()  # Save progress when correct
 
-                                # Trigger confetti effect when correct sign is made
+                                    # Trigger confetti effect when correct sign is made
+                                    if not self.confetti_triggered:
+                                        self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
+                                        self.confetti_triggered = True
+                                        self.confetti_sound.play()  # Play confetti sound when triggered
+                            else:
+                                # Only set to false if we're not in celebration mode
                                 if not self.confetti_triggered:
-                                    self.confetti_particles = [Confetti(1024, 600) for _ in range(100)]
-                                    self.confetti_triggered = True
-                                    self.confetti_sound.play()  # Play confetti sound when triggered
-
-                        else:
-                            if self.start_time is None:
-                                self.start_time = time.time()
-                            elif time.time() - self.start_time > 5:
-                                self.correct = False
-                                self.start_time = None
-                                self.confetti_triggered = False  # Reset confetti trigger
-
+                                    self.correct = False
+                        
                         # Draw landmarks
                         self.mp_drawing.draw_landmarks(
                             roi, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
                             self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2),
                             self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2)
                         )
+                elif self.confetti_triggered:
+                    # We're in celebration mode, keep the correct state
+                    pass
                 else:
-                    # No hand landmarks detected, do not display "Try Again"
+                    # No hand landmarks detected and not in celebration
                     self.correct = None
                 
                 # Display result
                 if self.correct is True:
                     result_text = "Correct"
                 elif self.correct is False:
-                    result_text = "Try Again"
-                    self.start_time = None  # Reset the timer if not correct
-                    self.confetti_triggered = False  # Reset confetti trigger if incorrect
+                    result_text = "Try Again"  # Display "Try Again" only if a wrong gesture is performed
                 else:
                     result_text = ""  # No gesture detected, display nothing
 
@@ -2143,6 +2153,12 @@ class PhraseDisplayState(State):
             # Remove particles that fall off screen
             if particle.y > 600:
                 self.confetti_particles.remove(particle)
+        
+        # Check if celebration has ended (no more confetti particles)
+        if self.confetti_triggered and len(self.confetti_particles) == 0:
+            self.confetti_triggered = False
+            self.correct = False  # Reset the correct state
+            self.start_time = None  # Reset the timer
 
         # Draw back button
         self.game.screen.blit(self.back_button_img, self.back_button_rect.topleft)
@@ -2233,7 +2249,6 @@ class PhraseDisplayState(State):
                 
                 print(f"Progress saved for phrase: {self.expected_phrase} in Galaxy Explorer")
 
-                
 class CosmicCopyState(State):
     def __init__(self, game):
         super().__init__(game)
@@ -2280,6 +2295,10 @@ class CosmicCopyState(State):
         # Webcam feed parameters
         self.webcam_position = (600, 152)
         self.webcam_size = (350, 263)
+        
+        # Track recently used items to prevent repeats
+        self.recent_items = {"alphabet": [], "number": [], "phrase": []}
+        self.last_category = None
 
     def enter(self):
         self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Initialize webcam
@@ -2295,15 +2314,64 @@ class CosmicCopyState(State):
             self.webcam = None
 
     def randomize_item(self):
-        choice = random.choice(["alphabet", "number", "phrase"])
+        # Choose a category, avoiding the last one if possible
+        available_categories = ["alphabet", "number", "phrase"]
+        if self.last_category and len(available_categories) > 1:
+            available_categories.remove(self.last_category)
+        
+        choice = random.choice(available_categories)
+        self.last_category = choice
+        
         if choice == "alphabet":
-            self.expected_value = random.choice(self.alphabet_labels)
+            # Get list of items not recently used
+            available_items = [item for item in self.alphabet_labels 
+                              if item not in self.recent_items["alphabet"]]
+            
+            # If all items have been recently used, reset the tracking
+            if not available_items:
+                available_items = self.alphabet_labels
+                self.recent_items["alphabet"] = []
+            
+            # Select a random item from available options
+            self.expected_value = random.choice(available_items)
+            
+            # Update recent items (keep track of last 5 items)
+            self.recent_items["alphabet"].append(self.expected_value)
+            if len(self.recent_items["alphabet"]) > 5:
+                self.recent_items["alphabet"].pop(0)
+                
             self.current_item = pygame.image.load(os.path.join("GAME PROPER", "COSMIC COPY ALPHABET", f"{self.expected_value}.png")).convert_alpha()
+            
         elif choice == "number":
-            self.expected_value = random.choice(self.number_labels)
+            available_items = [item for item in self.number_labels 
+                              if item not in self.recent_items["number"]]
+            
+            if not available_items:
+                available_items = self.number_labels
+                self.recent_items["number"] = []
+                
+            self.expected_value = random.choice(available_items)
+            
+            self.recent_items["number"].append(self.expected_value)
+            if len(self.recent_items["number"]) > 3:  # Track last 3 numbers
+                self.recent_items["number"].pop(0)
+                
             self.current_item = pygame.image.load(os.path.join("GAME PROPER", "COSMIC COPY NUMBER", f"{self.expected_value}.png")).convert_alpha()
-        else:
-            self.expected_value = random.choice(self.phrase_labels)
+            
+        else:  # phrase
+            available_items = [item for item in self.phrase_labels 
+                               if item not in self.recent_items["phrase"]]
+            
+            if not available_items:
+                available_items = self.phrase_labels
+                self.recent_items["phrase"] = []
+                
+            self.expected_value = random.choice(available_items)
+            
+            self.recent_items["phrase"].append(self.expected_value)
+            if len(self.recent_items["phrase"]) > 2:  # Track last 2 phrases
+                self.recent_items["phrase"].pop(0)
+                
             self.current_item = pygame.image.load(os.path.join("GAME PROPER", "COSMIC COPY PHRASES", f"{self.expected_value.upper()}.png")).convert_alpha()
 
         self.current_item = pygame.transform.smoothscale(self.current_item, self.get_scaled_dimensions(self.current_item, 1024, 600))
