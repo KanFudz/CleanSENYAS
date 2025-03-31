@@ -7,7 +7,17 @@
             "galaxy_explorer": [
                 "Phrase: HELLO",
                 "Phrase: THANKYOU",
-                "Phrase: ILOVEYOU"
+                "Phrase: ILOVEYOU",
+                "Alphabets: A",
+                "Number: 0"
+            ],
+            "cosmic_copy": [
+                "Alphabets: B",
+                "Alphabets: V",
+                "Numbers: 1",
+                "Numbers: 8",
+                "Phrase: hello",
+                "Phrase: iloveyou"
             ]
         }
     }
