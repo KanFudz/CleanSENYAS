@@ -1074,7 +1074,7 @@ class Confetti:
                                   (255, 255, 0), (255, 0, 255), (0, 255, 255)])
         self.width = random.randint(5, 15)
         self.height = random.randint(5, 15)
-        self.speed = random.uniform(5, 12)
+        self.speed = random.uniform(11, 22)
         self.rotation = random.randint(0, 360)
         self.rotation_speed = random.uniform(-8, 8)
 
