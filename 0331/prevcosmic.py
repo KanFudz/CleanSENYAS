@@ -2023,7 +2023,7 @@ class PhraseDisplayState(State):
         self.webcam = None  # Initialize webcam as None
 
         # Load the TFLite model
-        self.interpreter = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
+        self.interpreter = tflite.Interpreter(model_path="MODEL/gesture_model.tflite")
         self.interpreter.allocate_tensors()
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
@@ -2260,7 +2260,7 @@ class CosmicCopyState(State):
         self.alphabet_model.allocate_tensors()
         self.number_model = tflite.Interpreter(model_path="MODEL/asl_number_classifier.tflite")
         self.number_model.allocate_tensors()
-        self.phrase_model = tflite.Interpreter(model_path="MODEL/asl_phrase_model.tflite")
+        self.phrase_model = tflite.Interpreter(model_path="MODEL/gesture_model.tflite")
         self.phrase_model.allocate_tensors()
 
         # Mediapipe Hands setup
