@@ -1,7 +1,13 @@
 {
     "name": "salojado18@gmail.com",
-    "created at": "03/27/2025",
+    "created at": "03/31/2025",
     "progress": {
-        "completed lessons": []
+        "completed lessons": [],
+        "completed_lessons": {
+            "galaxy_explorer": [
+                "Phrase: HELLO",
+                "Phrase: SORRY"
+            ]
+        }
     }
 }
