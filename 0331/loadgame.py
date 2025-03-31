@@ -877,24 +877,29 @@ class LoadGameState(State):
             pygame.draw.rect(self.game.screen, (30, 30, 60), self.data_panel)
             pygame.draw.rect(self.game.screen, (0, 200, 200), self.data_panel, 2)
             
-            # Draw the header with smaller font size
-            header_text = self.small_font.render(f"Profile: {self.selected_profile}", True, pygame.Color('green'))
+            # Draw "Profile:" header
+            header_text = self.small_font.render("Profile:", True, pygame.Color('green'))
             header_rect = header_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 10)
             self.game.screen.blit(header_text, header_rect)
             
-            # Draw the creation date
+            # Draw the profile name on the next line
+            profile_text = self.small_font.render(self.selected_profile, True, pygame.Color('green'))
+            profile_rect = profile_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 35)  # Indented and below header
+            self.game.screen.blit(profile_text, profile_rect)
+            
+            # Draw the creation date with adjusted position
             created_at_text = self.small_font.render(f"Created at: {self.selected_profile_data.get('created at', 'N/A')}", True, pygame.Color('green'))
-            created_at_rect = created_at_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 40)
+            created_at_rect = created_at_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 60)
             self.game.screen.blit(created_at_text, created_at_rect)
             
-            # Draw the "PROGRESS:" header as a fixed element (not scrollable)
+            # Draw the "PROGRESS:" header with adjusted position
             progress_text = self.small_font.render("PROGRESS:", True, pygame.Color('white'))
-            progress_rect = progress_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 70)
+            progress_rect = progress_text.get_rect(x=self.data_panel.x + 10, y=self.data_panel.y + 85)
             self.game.screen.blit(progress_text, progress_rect)
             
             # Draw the progress information with scrolling
             # Start drawing below the fixed header
-            base_y = self.data_panel.y + 100
+            base_y = self.data_panel.y + 115
             line_height = 30
             
             # Calculate the range of lines to display based on the scroll offset
