@@ -2,6 +2,31 @@
     "name": "angelomalabanan42@gmail.com",
     "created at": "03/31/2025",
     "progress": {
-        "completed lessons": []
+        "completed lessons": [],
+        "completed_lessons": {
+            "galaxy_explorer": [
+                "Alphabets: A",
+                "Alphabets: B",
+                "Alphabets: C",
+                "Alphabets: D",
+                "Alphabets: E",
+                "Alphabets: F",
+                "Alphabets: G",
+                "Alphabets: H",
+                "Number: 0",
+                "Number: 1",
+                "Number: 3",
+                "Number: 4",
+                "Number: 5",
+                "Number: 6",
+                "Phrase: HELLO",
+                "Phrase: ILOVEYOU",
+                "Phrase: SORRY"
+            ],
+            "cosmic_copy": [
+                "Alphabets: S",
+                "Numbers: 5"
+            ]
+        }
     }
 }
