@@ -4,15 +4,18 @@
     "progress": {
         "completed lessons": [],
         "completed_lessons": {
-            "star_quest": [
-                "Fingerspelling: CAT",
-                "Fingerspelling: DOG",
-                "Fingerspelling: ELEPHANT",
-                "Fingerspelling: FISH",
-                "Fingerspelling: SUN"
-            ],
             "cosmic_copy": [
-                "Numbers: 9"
+                "Alphabets: B",
+                "Alphabets: J",
+                "Numbers: 0",
+                "Numbers: 1",
+                "Phrase: iloveyou"
+            ],
+            "galaxy_explorer": [
+                "Phrase: THANKYOU",
+                "Phrase: ILOVEYOU",
+                "Phrase: SORRY",
+                "Phrase: HELLO"
             ]
         }
     }
