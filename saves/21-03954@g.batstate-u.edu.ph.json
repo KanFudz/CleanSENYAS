@@ -1,0 +1,40 @@
+{
+    "name": "21-03954@g.batstate-u.edu.ph",
+    "created at": "04/08/2025",
+    "progress": {
+        "completed lessons": [],
+        "completed_lessons": {
+            "galaxy_explorer": [
+                "Alphabets: A",
+                "Alphabets: B",
+                "Alphabets: C"
+            ],
+            "star_quest": [
+                "Fingerspelling: CAT"
+            ],
+            "cosmic_copy": [
+                "Alphabets: A",
+                "Alphabets: C",
+                "Alphabets: E",
+                "Alphabets: G",
+                "Alphabets: I",
+                "Alphabets: K",
+                "Alphabets: L",
+                "Alphabets: O",
+                "Alphabets: P",
+                "Alphabets: T",
+                "Alphabets: Y",
+                "Numbers: 1",
+                "Numbers: 3",
+                "Numbers: 4",
+                "Numbers: 6",
+                "Numbers: 7",
+                "Numbers: 9",
+                "Phrase: hello",
+                "Phrase: iloveyou",
+                "Phrase: sorry",
+                "Phrase: thankyou"
+            ]
+        }
+    }
+}
