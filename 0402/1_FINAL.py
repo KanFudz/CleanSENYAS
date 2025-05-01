@@ -3196,78 +3196,122 @@ def load_assets(screen):
 
 class Game:
     def __init__(self):
-        pygame.init()
-        pygame.mixer.init()
-        self.screen = pygame.display.set_mode((1024, 600))
-        pygame.display.set_caption("SENYAS")
-        
-        # Initialize the current profile
-        self.current_profile = None
-        
-        self.current_state_name = "welcome"  # Initialize with the starting state
-        self.current_state_data = None  # Add this to store state data
+        try:
+            pygame.init()
+            pygame.mixer.init()
+            self.screen = pygame.display.set_mode((1024, 600))
+            pygame.display.set_caption("SENYAS")
+            
+            # Initialize the current profile
+            self.current_profile = None
+            
+            self.current_state_name = "welcome"  # Initialize with the starting state
+            self.current_state_data = None  # Add this to store state data
 
-        # Initialize font
-        self.font = pygame.font.Font(None, 36)
-        
-        # Show loading screen while loading assets
-        show_loading_screen(self.screen, 0)
-        self.images, self.sounds, self.videos = load_assets(self.screen)
-        
-        self.states = {
-            "welcome": WelcomeState(self, "welcome", [("BUTTONS/LAUNCH.png", None, "playing_welcome")], "AUDIO/LAUNCH SOUND.mp3"),
-            "playing_welcome": VideoState(self, "welcome", "playing_intro"),
-            "playing_intro": VideoState(self, "intro", "playing_usertype", "AUDIO/INTRO.mp3"),  
-            "playing_usertype": UserTypeState(self, "usertype", [("BUTTONS/LEARNER.png", None, "playing_learner_planet"), ("BUTTONS/GUARDIAN.png", None, "playing_guardian_planet")], "AUDIO/USERTYPE.mp3"),  
-            "load_game": LoadGameState(self, "blgsign"),
-            "playing_learner_planet": VideoState(self, "lplanet", "playing_learner_landing"),
-            "playing_learner_landing": VideoState(self, "llanding", "playing_blgsign", "AUDIO/LLANDING.mp3"),  
-            "playing_blgsign": BLGSignState(self, "blgsign", [("BUTTONS/NEW GAME.png", None, "playing_lgsign"), ("BUTTONS/LOAD GAME.png", None, "load_game")]),
-            "playing_lgsign": VideoWithSignInState(self, "lgsign", "playing_home"),
-            "playing_guardian_planet": VideoState(self, "gplanet", "playing_guardian_landing"),
-            "playing_guardian_landing": VideoState(self, "glanding", "playing_home", "AUDIO/GLANDING.mp3"),  
-            "playing_home": HomeState(self, "home", None, "AUDIO/HOME.mp3"),
-            "playing_galaxy": GalaxyExplorerState(self, "gexplorer"),
-            "playing_alphabets": GalaxyExplorerAlphabetState(self, "galpha"),
-            "playing_numbers": GalaxyExplorerNumberState(self, "gnum"),
-            "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases"),
-            "on_screen_keyboard": OnScreenKeyboardState(self),  # Add this line
-            "playing_star": StarQuestState(self)  # Add the StarQuestState here
-        }
+            # Initialize font
+            self.font = pygame.font.Font(None, 36)
+            
+            # Show loading screen while loading assets
+            show_loading_screen(self.screen, 0)
+            self.images, self.sounds, self.videos = load_assets(self.screen)
+            
+            self.states = {
+                "welcome": WelcomeState(self, "welcome", [("BUTTONS/LAUNCH.png", None, "playing_welcome")], "AUDIO/LAUNCH SOUND.mp3"),
+                "playing_welcome": VideoState(self, "welcome", "playing_intro"),
+                "playing_intro": VideoState(self, "intro", "playing_usertype", "AUDIO/INTRO.mp3"),  
+                "playing_usertype": UserTypeState(self, "usertype", [("BUTTONS/LEARNER.png", None, "playing_learner_planet"), ("BUTTONS/GUARDIAN.png", None, "playing_guardian_planet")], "AUDIO/USERTYPE.mp3"),  
+                "load_game": LoadGameState(self, "blgsign"),
+                "playing_learner_planet": VideoState(self, "lplanet", "playing_learner_landing"),
+                "playing_learner_landing": VideoState(self, "llanding", "playing_blgsign", "AUDIO/LLANDING.mp3"),  
+                "playing_blgsign": BLGSignState(self, "blgsign", [("BUTTONS/NEW GAME.png", None, "playing_lgsign"), ("BUTTONS/LOAD GAME.png", None, "load_game")]),
+                "playing_lgsign": VideoWithSignInState(self, "lgsign", "playing_home"),
+                "playing_guardian_planet": VideoState(self, "gplanet", "playing_guardian_landing"),
+                "playing_guardian_landing": VideoState(self, "glanding", "playing_home", "AUDIO/GLANDING.mp3"),  
+                "playing_home": HomeState(self, "home", None, "AUDIO/HOME.mp3"),
+                "playing_galaxy": GalaxyExplorerState(self, "gexplorer"),
+                "playing_alphabets": GalaxyExplorerAlphabetState(self, "galpha"),
+                "playing_numbers": GalaxyExplorerNumberState(self, "gnum"),
+                "playing_phrases": GalaxyExplorerPhrasesstate(self, "gphrases"),
+                "on_screen_keyboard": OnScreenKeyboardState(self),  # Add this line
+                "playing_star": StarQuestState(self)  # Add the StarQuestState here
+            }
 
-        # Add phrase states dynamically
-        self.phrase_sequence = []
+            # Add phrase states dynamically
+            self.phrase_sequence = []
 
-        phrases = ["HELLO", "THANKYOU", "ILOVEYOU", "SORRY"]
-        for phrase in phrases:
-            state_name = f"playing_{phrase.lower()}"
-            image_path = os.path.join("GAME PROPER", "GEXPLORER PHRASES", f"{phrase}.png")
-            self.states[state_name] = PhraseDisplayState(self, image_path, phrase.upper(), None)
-            self.phrase_sequence.append(state_name)  # Store order dynamically
+            phrases = ["HELLO", "THANKYOU", "ILOVEYOU", "SORRY"]
+            for phrase in phrases:
+                state_name = f"playing_{phrase.lower()}"
+                image_path = os.path.join("GAME PROPER", "GEXPLORER PHRASES", f"{phrase}.png")
+                self.states[state_name] = PhraseDisplayState(self, image_path, phrase.upper(), None)
+                self.phrase_sequence.append(state_name)  # Store order dynamically
 
-        # Add number states dynamically
-        for i in range(10):
-            state_name = f"playing_{i}"
-            image_path = os.path.join("GAME PROPER", "GEXPLORER NUMBER", f"{i}.png")
-            self.states[state_name] = NumberDisplayState(self, image_path, expected_number=i)
-        
-        # Define number sequence (0 → 1 → 2 → ... → 9)
-        self.number_sequence = [f"playing_{i}" for i in range(10)]
+            # Add number states dynamically
+            for i in range(10):
+                state_name = f"playing_{i}"
+                image_path = os.path.join("GAME PROPER", "GEXPLORER NUMBER", f"{i}.png")
+                self.states[state_name] = NumberDisplayState(self, image_path, expected_number=i)
+            
+            # Define number sequence (0 → 1 → 2 → ... → 9)
+            self.number_sequence = [f"playing_{i}" for i in range(10)]
 
-        # Define alphabet sequence (A → B → C → ... → Z)
-        self.alphabet_sequence = [f"playing_{letter.lower()}" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
+            # Define alphabet sequence (A → B → C → ... → Z)
+            self.alphabet_sequence = [f"playing_{letter.lower()}" for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 
-        # Add alphabet states dynamically
-        for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
-            state_name = f"playing_{letter.lower()}"
-            image_path = os.path.join("GAME PROPER", "GEXPLORER ALPHABET", f"{letter}.png")
-            self.states[state_name] = AlphabetDisplayState(self, image_path, expected_letter=letter)
+            # Add alphabet states dynamically
+            for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                state_name = f"playing_{letter.lower()}"
+                image_path = os.path.join("GAME PROPER", "GEXPLORER ALPHABET", f"{letter}.png")
+                self.states[state_name] = AlphabetDisplayState(self, image_path, expected_letter=letter)
 
-        self.states["playing_cosmic"] = CosmicCopyState(self)
-        self.current_state = self.states["welcome"]  # Start at welcome screen after loading
-        self.current_state.enter()
-        self.clock = pygame.time.Clock()
-    
+            self.states["playing_cosmic"] = CosmicCopyState(self)
+            self.current_state = self.states["welcome"]  # Start at welcome screen after loading
+            self.current_state.enter()
+            self.clock = pygame.time.Clock()
+        except Exception as e:
+            with open("error.log", "a") as f:
+                import traceback
+                f.write("Exception in Game.__init__:\n")
+                traceback.print_exc(file=f)
+            raise e
+
+    def run(self):
+        try:
+            while True:
+                self.screen.fill((0, 0, 0))
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        # Load user data from JSON file
+                        if self.current_profile:
+                            json_file_path = f"saves/{self.current_profile}.json"
+                            try:
+                                with open(json_file_path, 'r') as file:
+                                    user_data = json.load(file)
+                                profile_name = user_data.get("name")
+                                completed_lessons = user_data.get("progress", {}).get("completed_lessons", {})
+
+                                # Check internet connection and send email
+                                if profile_name and is_connected():
+                                    send_email(profile_name, completed_lessons)
+                                else:
+                                    print("No internet connection or email not found. Email not sent.")
+                            except Exception as e:
+                                print(f"Error reading user data: {e}")
+
+                        pygame.quit()
+                        sys.exit()
+                    self.current_state.handle_event(event)
+                self.current_state.update()
+                self.current_state.render()
+                pygame.display.flip()
+                self.clock.tick(30)
+        except Exception as e:
+            with open("error.log", "a") as f:
+                import traceback
+                f.write("Exception in Game.run:\n")
+                traceback.print_exc(file=f)
+            raise e
+
     def change_state(self, new_state, data=None):
         self.current_state.exit()
         self.current_state = self.states[new_state]

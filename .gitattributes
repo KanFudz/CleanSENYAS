@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+JREXE.pk filter=lfs diff=lfs merge=lfs -text
+JREXE.pkg filter=lfs diff=lfs merge=lfs -text
+SENYAS.pkg filter=lfs diff=lfs merge=lfs -text

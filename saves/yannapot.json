@@ -6,10 +6,25 @@
         "completed_lessons": {
             "cosmic_copy": [
                 "Alphabets: B",
+                "Alphabets: F",
+                "Alphabets: I",
                 "Alphabets: J",
+                "Alphabets: M",
+                "Alphabets: N",
+                "Alphabets: P",
+                "Alphabets: U",
                 "Numbers: 0",
                 "Numbers: 1",
-                "Phrase: iloveyou"
+                "Numbers: 3",
+                "Numbers: 4",
+                "Numbers: 5",
+                "Numbers: 7",
+                "Numbers: 8",
+                "Numbers: 9",
+                "Phrase: hello",
+                "Phrase: iloveyou",
+                "Phrase: sorry",
+                "Phrase: thankyou"
             ],
             "galaxy_explorer": [
                 "Phrase: THANKYOU",
